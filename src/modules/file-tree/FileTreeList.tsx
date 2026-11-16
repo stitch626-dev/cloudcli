@@ -1,16 +1,13 @@
 import type { DragEvent, ReactNode, RefObject } from 'react';
 
-import type { FileTreeNode as FileTreeNodeType, FileTreeViewMode } from '@/shared/types';
+import type { FileTreeNode as FileTreeNodeType } from '@/shared/types';
 import FileTreeNode from '@/modules/file-tree/FileTreeNode';
 
 type FileTreeListProps = {
   items: FileTreeNodeType[];
-  viewMode: FileTreeViewMode;
   expandedDirs: Set<string>;
   onItemClick: (item: FileTreeNodeType) => void;
   renderFileIcon: (filename: string) => ReactNode;
-  formatFileSize: (bytes?: number) => string;
-  formatRelativeTime: (date?: string) => string;
   onRename?: (item: FileTreeNodeType) => void;
   onDelete?: (item: FileTreeNodeType) => void;
   onNewFile?: (path: string) => void;
@@ -32,15 +29,12 @@ type FileTreeListProps = {
   operationLoading?: boolean;
 };
 
-/** Rendered by FileTreeBody to lay out the tree rows for the active view mode. */
+/** Rendered by FileTreeBody to lay out the tree rows in the explorer. */
 export default function FileTreeList({
   items,
-  viewMode,
   expandedDirs,
   onItemClick,
   renderFileIcon,
-  formatFileSize,
-  formatRelativeTime,
   onRename,
   onDelete,
   onNewFile,
@@ -66,12 +60,9 @@ export default function FileTreeList({
           key={item.path}
           item={item}
           level={0}
-          viewMode={viewMode}
           expandedDirs={expandedDirs}
           onItemClick={onItemClick}
           renderFileIcon={renderFileIcon}
-          formatFileSize={formatFileSize}
-          formatRelativeTime={formatRelativeTime}
           onRename={onRename}
           onDelete={onDelete}
           onNewFile={onNewFile}

@@ -8,6 +8,7 @@ import multer from 'multer';
 import { projectsDb } from '@/modules/database/index.js';
 import { createFileTreeRouter } from '@/modules/file-tree/file-tree.routes.js';
 import { createFileTreeService } from '@/modules/file-tree/file-tree.service.js';
+import { readWorkspaceTextFile, writeWorkspaceTextFile } from '@/modules/file-tree/text-file.js';
 import type {
   FileTreeFileSystem,
   FileTreeLogger,
@@ -42,8 +43,8 @@ const fileTreeFileSystem: FileTreeFileSystem = {
     yield* await fsPromises.opendir(directoryPath);
   },
   realpath: (candidatePath) => fsPromises.realpath(candidatePath),
-  readTextFile: (filePath) => fsPromises.readFile(filePath, 'utf8'),
-  writeTextFile: (filePath, content) => fsPromises.writeFile(filePath, content, 'utf8'),
+  readTextFile: readWorkspaceTextFile,
+  writeTextFile: writeWorkspaceTextFile,
   async makeDirectory(directoryPath, recursive) {
     await fsPromises.mkdir(directoryPath, { recursive });
   },

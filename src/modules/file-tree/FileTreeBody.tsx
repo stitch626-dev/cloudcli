@@ -2,7 +2,7 @@ import type { DragEvent, ReactNode, RefObject } from 'react';
 import { AlertTriangle, Folder, Search } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
-import type { FileTreeNode, FileTreeViewMode } from '@/shared/types';
+import type { FileTreeNode } from '@/shared/types';
 import FileTreeEmptyState from '@/modules/file-tree/FileTreeEmptyState';
 import FileTreeList from '@/modules/file-tree/FileTreeList';
 
@@ -11,12 +11,9 @@ type FileTreeBodyProps = {
   filteredFiles: FileTreeNode[];
   error?: string | null;
   searchQuery: string;
-  viewMode: FileTreeViewMode;
   expandedDirs: Set<string>;
   onItemClick: (item: FileTreeNode) => void;
   renderFileIcon: (filename: string) => ReactNode;
-  formatFileSize: (bytes?: number) => string;
-  formatRelativeTime: (date?: string) => string;
   onRename?: (item: FileTreeNode) => void;
   onDelete?: (item: FileTreeNode) => void;
   onNewFile?: (path: string) => void;
@@ -44,12 +41,9 @@ export default function FileTreeBody({
   filteredFiles,
   error,
   searchQuery,
-  viewMode,
   expandedDirs,
   onItemClick,
   renderFileIcon,
-  formatFileSize,
-  formatRelativeTime,
   onRename,
   onDelete,
   onNewFile,
@@ -93,12 +87,9 @@ export default function FileTreeBody({
       ) : (
         <FileTreeList
           items={filteredFiles}
-          viewMode={viewMode}
           expandedDirs={expandedDirs}
           onItemClick={onItemClick}
           renderFileIcon={renderFileIcon}
-          formatFileSize={formatFileSize}
-          formatRelativeTime={formatRelativeTime}
           onRename={onRename}
           onDelete={onDelete}
           onNewFile={onNewFile}

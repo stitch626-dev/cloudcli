@@ -1,6 +1,10 @@
 import { cleanup } from '@testing-library/react';
 import { afterEach } from 'vitest';
 
+// Existing component assertions use English copy. Give the test user an
+// explicit preference; the i18n default-language tests exercise a fresh user.
+localStorage.setItem('user-preferences', JSON.stringify({ userLanguage: 'en' }));
+
 // Auto-cleanup only self-registers when vitest globals are enabled, and they are
 // not. Without this, a hook rendered in one test stays mounted — with its timers
 // and effects live — for the rest of the file.

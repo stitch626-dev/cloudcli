@@ -1,21 +1,18 @@
 import type { DragEvent, ReactNode, RefObject } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ChevronRight, Folder, FolderOpen, Upload } from 'lucide-react';
+import { ChevronRight, Copy, Folder, FolderOpen } from 'lucide-react';
 
 import { cn } from '@/shared/utils';
-import type { FileTreeNode as FileTreeNodeType, FileTreeViewMode } from '@/shared/types';
+import type { FileTreeNode as FileTreeNodeType } from '@/shared/types';
 import { Input } from '@/shared/ui';
 import FileContextMenu from '@/modules/file-tree/FileContextMenu';
 
 type FileTreeNodeProps = {
   item: FileTreeNodeType;
   level: number;
-  viewMode: FileTreeViewMode;
   expandedDirs: Set<string>;
   onItemClick: (item: FileTreeNodeType) => void;
   renderFileIcon: (filename: string) => ReactNode;
-  formatFileSize: (bytes?: number) => string;
-  formatRelativeTime: (date?: string) => string;
   onRename?: (item: FileTreeNodeType) => void;
   onDelete?: (item: FileTreeNodeType) => void;
   onNewFile?: (path: string) => void;
@@ -76,12 +73,9 @@ function TreeItemIcon({ item, isOpen, renderFileIcon }: TreeItemIconProps) {
 export default function FileTreeNode({
   item,
   level,
-  viewMode,
   expandedDirs,
   onItemClick,
   renderFileIcon,
-  formatFileSize,
-  formatRelativeTime,
   onRename,
   onDelete,
   onNewFile,
@@ -109,17 +103,12 @@ export default function FileTreeNode({
   const isDropTarget = isDirectory && dropTarget === item.path;
 
   const nameClassName = cn(
-    'text-[13px] leading-tight truncate',
+    'min-w-0 flex-1 text-[13px] leading-tight truncate',
     isDirectory ? 'font-medium text-foreground' : 'text-foreground/90',
   );
 
-  // View mode only changes the row layout; selection, expansion, and recursion stay shared.
   const rowClassName = cn(
-    viewMode === 'detailed'
-      ? 'group grid grid-cols-12 gap-2 py-[3px] pr-2 hover:bg-accent/60 cursor-pointer items-center rounded-sm transition-colors duration-100'
-      : viewMode === 'compact'
-      ? 'group flex items-center justify-between py-[3px] pr-2 hover:bg-accent/60 cursor-pointer rounded-sm transition-colors duration-100'
-      : 'group flex items-center gap-1.5 py-[3px] pr-2 cursor-pointer rounded-sm hover:bg-accent/60 transition-colors duration-100',
+    'group flex items-center gap-1.5 py-[3px] pr-8 cursor-pointer rounded-sm hover:bg-accent/60 transition-colors duration-100',
     isDirectory && isOpen && 'border-l-2 border-primary/30',
     (isDirectory && !isOpen) || !isDirectory ? 'border-l-2 border-transparent' : '',
     'relative',
@@ -157,22 +146,22 @@ export default function FileTreeNode({
     );
   }
 
-  const uploadHoverButton = isDirectory && onUpload && (
+  const copyPathHoverButton = onCopyPath && (
     <button
       type="button"
       onClick={(event) => {
         event.stopPropagation();
-        onUpload(item.path);
+        onCopyPath(item);
       }}
-      title={t('fileTree.uploadToFolder', 'Upload files to "{{folder}}"', { folder: item.name })}
-      aria-label={t('fileTree.uploadToFolder', 'Upload files to "{{folder}}"', { folder: item.name })}
+      title={t('fileTree.copyPath', 'Copy Path')}
+      aria-label={t('fileTree.copyPath', 'Copy Path')}
       className={cn(
         'absolute right-1 top-1/2 -translate-y-1/2 rounded p-1',
         'bg-background/80 text-muted-foreground opacity-0 transition-opacity',
         'group-hover:opacity-100 focus-visible:opacity-100 hover:bg-accent hover:text-foreground',
       )}
     >
-      <Upload className="h-3.5 w-3.5" />
+      <Copy className="h-3.5 w-3.5" />
     </button>
   );
 
@@ -183,40 +172,9 @@ export default function FileTreeNode({
       onClick={() => onItemClick(item)}
       onDragOver={onItemDragOver ? (event) => onItemDragOver(event, dragTargetPath) : undefined}
     >
-      {viewMode === 'detailed' ? (
-        <>
-          <div className="col-span-5 flex min-w-0 items-center gap-1.5">
-            <TreeItemIcon item={item} isOpen={isOpen} renderFileIcon={renderFileIcon} />
-            <span className={nameClassName}>{item.name}</span>
-          </div>
-          <div className="col-span-2 text-sm tabular-nums text-muted-foreground">
-            {item.type === 'file' ? formatFileSize(item.size) : ''}
-          </div>
-          <div className="col-span-3 text-sm text-muted-foreground">{formatRelativeTime(item.modified)}</div>
-          <div className="col-span-2 font-mono text-sm text-muted-foreground">{item.permissionsRwx || ''}</div>
-        </>
-      ) : viewMode === 'compact' ? (
-        <>
-          <div className="flex min-w-0 items-center gap-1.5">
-            <TreeItemIcon item={item} isOpen={isOpen} renderFileIcon={renderFileIcon} />
-            <span className={nameClassName}>{item.name}</span>
-          </div>
-          <div className="ml-2 flex flex-shrink-0 items-center gap-3 text-sm text-muted-foreground">
-            {item.type === 'file' && (
-              <>
-                <span className="tabular-nums">{formatFileSize(item.size)}</span>
-                <span className="font-mono">{item.permissionsRwx}</span>
-              </>
-            )}
-          </div>
-        </>
-      ) : (
-        <>
-          <TreeItemIcon item={item} isOpen={isOpen} renderFileIcon={renderFileIcon} />
-          <span className={nameClassName}>{item.name}</span>
-        </>
-      )}
-      {uploadHoverButton}
+      <TreeItemIcon item={item} isOpen={isOpen} renderFileIcon={renderFileIcon} />
+      <span className={nameClassName}>{item.name}</span>
+      {copyPathHoverButton}
     </div>
   );
 
@@ -260,12 +218,9 @@ export default function FileTreeNode({
               key={child.path}
               item={child}
               level={level + 1}
-              viewMode={viewMode}
               expandedDirs={expandedDirs}
               onItemClick={onItemClick}
               renderFileIcon={renderFileIcon}
-              formatFileSize={formatFileSize}
-              formatRelativeTime={formatRelativeTime}
               onRename={onRename}
               onDelete={onDelete}
               onNewFile={onNewFile}

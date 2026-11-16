@@ -9,14 +9,11 @@ import { useExpandedDirectories } from '@/modules/file-tree/hooks/useExpandedDir
 import { useFileTreeData } from '@/modules/file-tree/hooks/useFileTreeData';
 import { useFileTreeOperations } from '@/modules/file-tree/hooks/useFileTreeOperations';
 import { useFileTreeSearch } from '@/modules/file-tree/hooks/useFileTreeSearch';
-import { useFileTreeViewMode } from '@/modules/file-tree/hooks/useFileTreeViewMode';
 import { useFileTreeUpload } from '@/modules/file-tree/hooks/useFileTreeUpload';
 import type { DirectoryRevealRequest, FileTreeNode,Project } from '@/shared/types';
-import { formatFileSize, formatRelativeTime } from '@/modules/file-tree/utils/fileTreeUtils';
 import { directoryRevealPaths } from '@/modules/file-tree/utils/revealDirectory';
 import { ScrollArea, Input } from '@/shared/ui';
 import FileTreeBody from '@/modules/file-tree/FileTreeBody';
-import FileTreeDetailedColumns from '@/modules/file-tree/FileTreeDetailedColumns';
 import FileTreeHeader from '@/modules/file-tree/FileTreeHeader';
 import FileTreeLoadingState from '@/modules/file-tree/FileTreeLoadingState';
 import FileTreeUploadProgress from '@/modules/file-tree/FileTreeUploadProgress';
@@ -52,7 +49,6 @@ export default function FileTree({ selectedProject, onFileOpen, revealDirectory 
 
   const { expandedDirs, toggleDirectory, expandDirectories, collapseAll } = useExpandedDirectories();
   const { files, loading, refreshing, error, refreshFiles } = useFileTreeData(selectedProject, expandedDirs);
-  const { viewMode, changeViewMode } = useFileTreeViewMode();
   const { searchQuery, setSearchQuery, filteredFiles } = useFileTreeSearch({
     files,
     expandDirectories,
@@ -154,11 +150,6 @@ export default function FileTree({ selectedProject, onFileOpen, revealDirectory 
     [onFileOpen, toggleDirectory],
   );
 
-  const formatRelativeTimeLabel = useCallback(
-    (date?: string) => formatRelativeTime(date, t),
-    [t],
-  );
-
   if (loading) {
     return <FileTreeLoadingState />;
   }
@@ -200,8 +191,6 @@ export default function FileTree({ selectedProject, onFileOpen, revealDirectory 
       )}
 
       <FileTreeHeader
-        viewMode={viewMode}
-        onViewModeChange={changeViewMode}
         searchQuery={searchQuery}
         onSearchQueryChange={setSearchQuery}
         onUploadFiles={upload.handleFileSelect}
@@ -222,7 +211,6 @@ export default function FileTree({ selectedProject, onFileOpen, revealDirectory 
         </button>
       )}
 
-      {viewMode === 'detailed' && filteredFiles.length > 0 && <FileTreeDetailedColumns />}
 
       <ScrollArea className="flex-1 px-2 py-1">
         {/* New item input */}
@@ -262,12 +250,9 @@ export default function FileTree({ selectedProject, onFileOpen, revealDirectory 
           filteredFiles={filteredFiles}
           error={files.length ? null : error}
           searchQuery={searchQuery}
-          viewMode={viewMode}
           expandedDirs={expandedDirs}
           onItemClick={handleItemClick}
           renderFileIcon={renderFileIcon}
-          formatFileSize={formatFileSize}
-          formatRelativeTime={formatRelativeTimeLabel}
           onRename={operations.handleStartRename}
           onDelete={operations.handleStartDelete}
           onNewFile={(path) => operations.handleStartCreate(path, 'file')}
