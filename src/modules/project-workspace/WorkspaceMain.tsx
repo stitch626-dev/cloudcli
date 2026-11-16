@@ -1,7 +1,10 @@
-import React, { useCallback, useEffect, type Dispatch, type SetStateAction, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
+import type { Dispatch, SetStateAction } from 'react';
 
 import { ChatInterface } from '@/modules/chat';
-import { FileTree } from '@/modules/file-tree';
+import { FolderOpen } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
+import WorkspaceExplorer from '@/modules/project-workspace/WorkspaceExplorer';
 import { StandaloneShell } from '@/modules/standalone-shell';
 import { GitPanel } from '@/modules/git-panel';
 import { PluginTabContent } from '@/modules/plugins';
@@ -59,6 +62,15 @@ function WorkspaceMain({
   onProjectsRefresh,
   onRenameSession,
 }: WorkspaceMainProps) {
+  const { t } = useTranslation();
+  // Desktop keeps the explorer mounted when hidden so folder expansion and loaded branches survive tab changes.
+  const [explorerOpen, setExplorerOpen] = useState(() => {
+    try { return localStorage.getItem('workspace-explorer-visible') !== 'false'; } catch { return true; }
+  });
+  const toggleExplorer = useCallback(() => setExplorerOpen((previous) => {
+    try { localStorage.setItem('workspace-explorer-visible', String(!previous)); } catch { /* Storage may be unavailable. */ }
+    return !previous;
+  }), []);
   const preferences = useUiPreferences();
   const { showRawParameters, showThinking, sendByCtrlEnter } = preferences;
 
@@ -84,10 +96,17 @@ function WorkspaceMain({
     handleToggleEditorExpand,
     handleResizeStart,
     handleUnsavedChangesChange,
+    confirmDiscardChanges,
   } = useEditorSidebar({
     selectedProject,
     isMobile,
   });
+
+  const selectExplorerProject = useCallback((project: Project) => {
+    if (!confirmDiscardChanges()) return;
+    handleCloseEditor();
+    onProjectSelect(project);
+  }, [confirmDiscardChanges, handleCloseEditor, onProjectSelect]);
 
   // Resolves bare/partial file references (e.g. links inside chat messages) to
   // real project files before opening them in the in-app editor.
@@ -126,6 +145,7 @@ function WorkspaceMain({
   // Directories cannot be read as text: reveal them in the file tree instead.
   const openDirectory = useCallback((directoryPath: string) => {
     setActiveTab('files');
+    setExplorerOpen(true);
     setRevealDirectory({ path: directoryPath });
   }, [setActiveTab]);
 
@@ -153,10 +173,15 @@ function WorkspaceMain({
         isMobile={isMobile}
         onMenuClick={onMenuClick}
         onRenameSession={onRenameSession}
+        explorerOpen={explorerOpen}
+        onToggleExplorer={toggleExplorer}
       />
 
       <div className="flex min-h-0 flex-1 overflow-hidden">
-        <div className={`flex min-h-0 min-w-[200px] flex-col overflow-hidden ${editorExpanded ? 'hidden' : ''} flex-1`}>
+        <aside aria-label={t('workspaceExplorer.title', 'Explorer')} className={`${isMobile ? (activeTab === 'files' && !editingFile ? 'w-full' : 'hidden') : (explorerOpen && !editorExpanded ? 'w-[260px] xl:w-[290px]' : 'hidden')} min-h-0 shrink-0 border-r border-border/60`}>
+          <WorkspaceExplorer project={selectedProject} onFileOpen={handleFileOpen} onProjectSelect={selectExplorerProject} onProjectsRefresh={onProjectsRefresh} revealDirectory={revealDirectory} />
+        </aside>
+        <div className={`flex min-h-0 min-w-0 flex-col overflow-hidden ${editorExpanded || (activeTab === 'files' && (editingFile || isMobile)) ? 'hidden' : ''} flex-1`}>
           <div className={`h-full ${activeTab === 'chat' ? 'block' : 'hidden'}`}>
             <WorkspaceErrorBoundary showDetails>
               <ChatInterface
@@ -180,12 +205,10 @@ function WorkspaceMain({
           </div>
 
           {activeTab === 'files' && (
-            <div className="h-full overflow-hidden">
-              <FileTree
-                selectedProject={selectedProject}
-                onFileOpen={handleFileOpen}
-                revealDirectory={revealDirectory}
-              />
+            <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center text-muted-foreground">
+              <FolderOpen className="h-10 w-10 opacity-40" />
+              <p className="text-sm">{t('workspaceExplorer.selectFile', 'Select a file from the explorer to preview or edit.')}</p>
+              {!explorerOpen && <button onClick={toggleExplorer} className="text-sm text-primary">{t('workspaceExplorer.show', 'Show explorer')}</button>}
             </div>
           )}
 
@@ -242,7 +265,7 @@ function WorkspaceMain({
           onCloseEditor={handleCloseEditor}
           onToggleEditorExpand={handleToggleEditorExpand}
           onUnsavedChangesChange={handleUnsavedChangesChange}
-          projectPath={selectedProject.path}
+          projectPath={selectedProject.path || selectedProject.fullPath}
           fillSpace={activeTab === 'files'}
         />
       </div>

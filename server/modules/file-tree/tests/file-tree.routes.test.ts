@@ -155,3 +155,12 @@ test('create route rejects invalid entry types without calling the service', asy
 
   assert.equal(createCalled, false);
 });
+
+test('project files route forwards lazy directory requests without changing recursive callers', async () => {
+  const inputs: Parameters<FileTreeServices['listProjectFiles']>[] = [];
+  await withFileTreeServer(createFakeServices({ listProjectFiles: async (...args) => { inputs.push(args); return []; } }), async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/api/file-tree/projects/p1/files?respectGitignore=true&shallow=true&directory=src`);
+    assert.equal(response.status, 200);
+  });
+  assert.deepEqual(inputs, [['p1', { respectGitignore: true, shallow: true, directory: 'src' }]]);
+});

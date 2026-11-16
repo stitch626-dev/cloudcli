@@ -134,7 +134,8 @@
       "refresh": "刷新",
       "menuLabel": "文件上下文菜单",
       "loading": "加载中..."
-    }
+    },
+    "filterLoaded": "筛选已加载的文件…"
   },
   "projectWizard": {
     "title": "创建新项目",
@@ -269,5 +270,12 @@
       "closeSidebar": "关闭侧边栏",
       "resizeSidebar": "调整侧边栏宽度"
     }
+  },
+  "workspaceExplorer": {
+    "title": "资源管理器",
+    "openFolder": "打开文件夹",
+    "selectFile": "从左侧选择文件，即可预览或编辑。",
+    "show": "显示文件树",
+    "toggle": "显示或隐藏文件树"
   }
 }

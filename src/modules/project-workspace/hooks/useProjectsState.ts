@@ -712,8 +712,12 @@ export function useProjectsState({
 
   // Auto-select the project when there is only one, so the user lands on the new session page
   useEffect(() => {
-    if (!isLoadingProjects && projects.length === 1 && !selectedProject && !sessionId) {
-      setSelectedProject(projects[0]);
+    if (!isLoadingProjects && !selectedProject && !sessionId) {
+      const defaultPath = import.meta.env.VITE_DEFAULT_WORKSPACE_PATH;
+      const preferred = defaultPath
+        ? projects.find((project) => (project.path || project.fullPath) === defaultPath)
+        : undefined;
+      if (preferred || projects.length === 1) setSelectedProject(preferred || projects[0]);
     }
   }, [isLoadingProjects, projects, selectedProject, sessionId]);
 

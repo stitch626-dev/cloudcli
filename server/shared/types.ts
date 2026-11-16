@@ -1606,7 +1606,7 @@ export type FileTreeServices = {
   }>;
   listProjectFiles(
     projectId: string,
-    options?: { respectGitignore: boolean },
+    options?: { respectGitignore: boolean; shallow?: boolean; directory?: string },
   ): Promise<FileTreeNode[]>;
   createEntry(input: {
     projectId: string;

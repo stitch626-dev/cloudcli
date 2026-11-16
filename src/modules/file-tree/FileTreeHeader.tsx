@@ -196,7 +196,7 @@ export default function FileTreeHeader({
         <Search className="absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
         <Input
           type="text"
-          placeholder={t('fileTree.searchPlaceholder')}
+          placeholder={t('fileTree.filterLoaded', 'Filter loaded files…')}
           value={searchQuery}
           onChange={(event) => onSearchQueryChange(event.target.value)}
           className="h-8 pl-8 pr-8 text-sm"

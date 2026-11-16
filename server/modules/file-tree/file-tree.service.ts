@@ -549,6 +549,22 @@ export function createFileTreeService(dependencies: FileTreeServiceDependencies)
         }
       }
 
+      if (options?.shallow) {
+        // Resolve both lexical traversal and symlink escapes before enumerating.
+        const directoryPath = path.resolve(projectRoot, options.directory || '.');
+        const canonicalRoot = await fileSystem.realpath(projectRoot);
+        const canonicalDirectory = await fileSystem.realpath(directoryPath);
+        const relative = path.relative(canonicalRoot, canonicalDirectory);
+        if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)
+          || FORBIDDEN_WORKSPACE_PATHS.includes(normalizeProjectPath(canonicalDirectory))) {
+          throw createFileTreeError('Directory must be under project root', 403, 'PATH_OUTSIDE_PROJECT');
+        }
+        const stats = await fileSystem.stat(canonicalDirectory);
+        if (!stats.isDirectory()) {
+          throw createFileTreeError('Path is not a directory', 400, 'NOT_A_DIRECTORY');
+        }
+        return buildFileTree(directoryPath, 0, 0, includeEntry);
+      }
       return buildFileTree(projectRoot, 10, 0, includeEntry);
     },
 

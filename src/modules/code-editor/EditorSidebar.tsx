@@ -117,7 +117,7 @@ export default function EditorSidebar({
   return (
     <div
       ref={containerRef}
-      className={isFloating ? 'contents' : `flex h-full min-w-0 ${editorExpanded ? 'flex-1' : ''}`}
+      className={isFloating ? 'contents' : `flex h-full min-w-0 ${useFlexLayout ? 'flex-1' : ''}`}
     >
       {!isFloating && !editorExpanded && (
         <div

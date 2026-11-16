@@ -80,6 +80,9 @@ export const useEditorSidebar = ({
     [selectedProject?.projectId, t],
   );
 
+  const confirmDiscardChanges = useCallback(() =>
+    !hasUnsavedChangesRef.current || window.confirm(t('unsavedChanges.confirmClose')), [t]);
+
   const handleCloseEditor = useCallback(() => {
     setEditingFile(null);
     setEditorExpanded(false);
@@ -180,5 +183,6 @@ export const useEditorSidebar = ({
     handleToggleEditorExpand,
     handleResizeStart,
     handleUnsavedChangesChange,
+    confirmDiscardChanges,
   };
 };

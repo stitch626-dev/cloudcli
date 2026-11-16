@@ -11,8 +11,8 @@ import { useFileTreeOperations } from '@/modules/file-tree/hooks/useFileTreeOper
 import { useFileTreeSearch } from '@/modules/file-tree/hooks/useFileTreeSearch';
 import { useFileTreeViewMode } from '@/modules/file-tree/hooks/useFileTreeViewMode';
 import { useFileTreeUpload } from '@/modules/file-tree/hooks/useFileTreeUpload';
-import type { DirectoryRevealRequest, FileTreeImageSelection, FileTreeNode,Project } from '@/shared/types';
-import { formatFileSize, formatRelativeTime, isImageFile } from '@/modules/file-tree/utils/fileTreeUtils';
+import type { DirectoryRevealRequest, FileTreeNode,Project } from '@/shared/types';
+import { formatFileSize, formatRelativeTime } from '@/modules/file-tree/utils/fileTreeUtils';
 import { directoryRevealPaths } from '@/modules/file-tree/utils/revealDirectory';
 import { ScrollArea, Input } from '@/shared/ui';
 import FileTreeBody from '@/modules/file-tree/FileTreeBody';
@@ -20,7 +20,6 @@ import FileTreeDetailedColumns from '@/modules/file-tree/FileTreeDetailedColumns
 import FileTreeHeader from '@/modules/file-tree/FileTreeHeader';
 import FileTreeLoadingState from '@/modules/file-tree/FileTreeLoadingState';
 import FileTreeUploadProgress from '@/modules/file-tree/FileTreeUploadProgress';
-import ImageViewer from '@/modules/file-tree/ImageViewer';
 
 
 type FileTreeProps = {
@@ -31,10 +30,9 @@ type FileTreeProps = {
   revealDirectory?: DirectoryRevealRequest | null;
 };
 
-/** Exported through the file-tree barrel; the project-workspace module renders it as the Files sidebar tab. */
+/** Used by project-workspace for the persistent explorer and the mobile Files view. */
 export default function FileTree({ selectedProject, onFileOpen, revealDirectory }: FileTreeProps) {
   const { t } = useTranslation();
-  const [selectedImage, setSelectedImage] = useState<FileTreeImageSelection | null>(null);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const newItemInputRef = useRef<HTMLInputElement>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
@@ -52,9 +50,9 @@ export default function FileTree({ selectedProject, onFileOpen, revealDirectory 
     }
   }, [toast]);
 
-  const { files, loading, error, refreshFiles } = useFileTreeData(selectedProject);
-  const { viewMode, changeViewMode } = useFileTreeViewMode();
   const { expandedDirs, toggleDirectory, expandDirectories, collapseAll } = useExpandedDirectories();
+  const { files, loading, error, refreshFiles } = useFileTreeData(selectedProject, expandedDirs);
+  const { viewMode, changeViewMode } = useFileTreeViewMode();
   const { searchQuery, setSearchQuery, filteredFiles } = useFileTreeSearch({
     files,
     expandDirectories,
@@ -76,7 +74,11 @@ export default function FileTree({ selectedProject, onFileOpen, revealDirectory 
     if (paths.length === 0) {
       return;
     }
-    revealedRef.current = revealDirectory;
+    // Lazy branches arrive one level at a time. Keep revealing until the target is loaded.
+    const root = projectRoot.replace(/\\/g, '/').replace(/\/+$/, '');
+    const target = revealDirectory.path.replace(/\\/g, '/').replace(/^\.\//, '').replace(/\/+$/, '');
+    const absoluteTarget = target.startsWith('/') ? target : `${root}/${target}`;
+    if (paths[paths.length - 1] === absoluteTarget) revealedRef.current = revealDirectory;
     expandDirectories(paths);
   }, [revealDirectory, selectedProject?.path, selectedProject?.fullPath, expandDirectories, files]);
 
@@ -147,21 +149,9 @@ export default function FileTree({ selectedProject, onFileOpen, revealDirectory 
         return;
       }
 
-      if (isImageFile(item.name) && selectedProject) {
-        setSelectedImage({
-          name: item.name,
-          path: item.path,
-          projectPath: selectedProject.path,
-          // Image URL uses the DB projectId so ImageViewer can hit the
-          // /api/file-tree/projects/:projectId/files/content endpoint directly.
-          projectId: selectedProject.projectId,
-        });
-        return;
-      }
-
       onFileOpen?.(item.path);
     },
-    [onFileOpen, selectedProject, toggleDirectory],
+    [onFileOpen, toggleDirectory],
   );
 
   const formatRelativeTimeLabel = useCallback(
@@ -226,6 +216,11 @@ export default function FileTree({ selectedProject, onFileOpen, revealDirectory 
       />
 
       <FileTreeUploadProgress upload={upload.uploadProgress} />
+      {error && (
+        <button className="px-3 py-2 text-left text-xs text-destructive" onClick={refreshFiles}>
+          {error} · {t('fileTree.refresh', 'Refresh')}
+        </button>
+      )}
 
       {viewMode === 'detailed' && filteredFiles.length > 0 && <FileTreeDetailedColumns />}
 
@@ -265,7 +260,7 @@ export default function FileTree({ selectedProject, onFileOpen, revealDirectory 
         <FileTreeBody
           files={files}
           filteredFiles={filteredFiles}
-          error={error}
+          error={files.length ? null : error}
           searchQuery={searchQuery}
           viewMode={viewMode}
           expandedDirs={expandedDirs}
@@ -294,12 +289,7 @@ export default function FileTree({ selectedProject, onFileOpen, revealDirectory 
         />
       </ScrollArea>
 
-      {selectedImage && (
-        <ImageViewer
-          file={selectedImage}
-          onClose={() => setSelectedImage(null)}
-        />
-      )}
+
 
       {/* Delete Confirmation Dialog */}
       {operations.deleteConfirmation.isOpen && operations.deleteConfirmation.item && (

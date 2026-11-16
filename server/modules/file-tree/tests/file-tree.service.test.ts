@@ -665,3 +665,38 @@ test('a file in another folder of the workspace can be read, but never written t
     await fsPromises.rm(outsideDirectory, { recursive: true, force: true });
   }
 });
+
+test('shallow file listing reads one directory without traversing its descendants', async () => {
+  const root = path.resolve('lazy-project');
+  const opened: string[] = [];
+  const service = createFileTreeService(createDependencies(createFakeFileSystem({
+    access: async () => undefined,
+    realpath: async (candidate) => candidate,
+    stat: async () => createStats(true, 0o755),
+    lstat: async () => createStats(false, 0o644),
+    openDirectory: createDirectoryReader((directory) => {
+      opened.push(directory);
+      assert.equal(directory, root);
+      return [createDirectoryEntry('src', true), createDirectoryEntry('README.md', false)];
+    }),
+  }), root));
+  const listing = await service.listProjectFiles('p1', { respectGitignore: false, shallow: true });
+  assert.deepEqual(opened, [root]);
+  assert.equal(listing[0].name, 'src');
+  assert.equal(listing[0].children, undefined);
+});
+
+test('shallow file listing rejects traversal and symlink escapes', async () => {
+  const root = path.resolve('lazy-project');
+  let reads = 0;
+  const service = createFileTreeService(createDependencies(createFakeFileSystem({
+    access: async () => undefined,
+    realpath: async (candidate) => candidate.endsWith('/link') ? path.dirname(root) : candidate,
+    openDirectory: createDirectoryReader(() => { reads += 1; return []; }),
+  }), root));
+  for (const directory of ['..', 'link', `${root}-sibling`]) {
+    await assert.rejects(service.listProjectFiles('p1', { respectGitignore: false, shallow: true, directory }),
+      (error: unknown) => error instanceof AppError && error.statusCode === 403);
+  }
+  assert.equal(reads, 0);
+});

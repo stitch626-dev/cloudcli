@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight, PanelLeft } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -10,6 +10,8 @@ import WorkspaceTabs from '@/modules/project-workspace/WorkspaceTabs';
 import WorkspaceTitle from '@/modules/project-workspace/WorkspaceTitle';
 
 type WorkspaceHeaderProps = {
+  explorerOpen?: boolean;
+  onToggleExplorer?: () => void;
   activeTab: AppTab;
   setActiveTab: Dispatch<SetStateAction<AppTab>>;
   selectedProject: Project;
@@ -24,6 +26,8 @@ type WorkspaceHeaderProps = {
 
 /** Rendered by WorkspaceMain to show the workspace title and chat connection status alongside the scrollable tab bar. */
 export default function WorkspaceHeader({
+  explorerOpen,
+  onToggleExplorer,
   activeTab,
   setActiveTab,
   selectedProject,
@@ -100,6 +104,11 @@ export default function WorkspaceHeader({
       <div className="flex min-w-0 flex-col gap-1.5 sm:flex-row sm:items-center sm:gap-3">
         <div className="flex min-w-0 items-center gap-2 sm:max-w-[min(34%,24rem)] sm:flex-[1_1_18rem]">
           {isMobile && <MobileMenuButton onMenuClick={onMenuClick} />}
+          {!isMobile && onToggleExplorer && (
+            <button onClick={onToggleExplorer} aria-label={t('workspaceExplorer.toggle', 'Toggle explorer')} aria-pressed={explorerOpen} title={t('workspaceExplorer.toggle', 'Toggle explorer')} className={`shrink-0 rounded p-1.5 hover:bg-accent ${explorerOpen ? 'text-primary' : 'text-muted-foreground'}`}>
+              <PanelLeft className="h-4 w-4" />
+            </button>
+          )}
           <WorkspaceTitle
             activeTab={activeTab}
             selectedProject={selectedProject}

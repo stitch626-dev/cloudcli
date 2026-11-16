@@ -137,7 +137,8 @@
       "refresh": "Refresh",
       "menuLabel": "File context menu",
       "loading": "Loading..."
-    }
+    },
+    "filterLoaded": "Filter loaded files…"
   },
   "projectWizard": {
     "title": "Create New Project",
@@ -394,5 +395,12 @@
     "taskRowNotLoaded": "Launched earlier in this conversation; click to load it",
     "taskOfAgent": "Launched by one of this session's agents"
   },
-  "cancel": "Cancel"
+  "cancel": "Cancel",
+  "workspaceExplorer": {
+    "title": "Explorer",
+    "openFolder": "Open folder",
+    "selectFile": "Select a file from the explorer to preview or edit.",
+    "show": "Show explorer",
+    "toggle": "Toggle explorer"
+  }
 }
