@@ -102,6 +102,12 @@
   "fileTree": {
     "loading": "正在加载文件...",
     "files": "文件",
+    "uploadFiles": "上传文件（每个最大 {{size}}）",
+    "uploadingFiles": "正在上传文件",
+    "toast": {
+      "pathCopied": "路径已复制到剪贴板",
+      "copyFailed": "复制路径失败"
+    },
     "simpleView": "简单视图",
     "compactView": "紧凑视图",
     "detailedView": "详细视图",

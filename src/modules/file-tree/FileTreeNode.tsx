@@ -153,8 +153,8 @@ export default function FileTreeNode({
         event.stopPropagation();
         onCopyPath(item);
       }}
-      title={t('fileTree.copyPath', 'Copy Path')}
-      aria-label={t('fileTree.copyPath', 'Copy Path')}
+      title={t('fileTree.context.copyPath', 'Copy Path')}
+      aria-label={t('fileTree.context.copyPath', 'Copy Path')}
       className={cn(
         'absolute right-1 top-1/2 -translate-y-1/2 rounded p-1',
         'bg-background/80 text-muted-foreground opacity-0 transition-opacity',
