@@ -92,6 +92,7 @@ function createDependencies(
     resolveMimeType: () => 'text/plain',
     fileSystemConcurrency: 4,
     logger: { error: () => undefined },
+    now: () => Date.now(),
   };
 }
 
@@ -525,6 +526,7 @@ function createRealFileSystemService(projectRoot: string, workspaceRoot = projec
     resolveMimeType: () => 'text/plain',
     fileSystemConcurrency: 4,
     logger: { error: () => undefined },
+    now: () => Date.now(),
   });
 }
 
@@ -699,4 +701,181 @@ test('shallow file listing rejects traversal and symlink escapes', async () => {
       (error: unknown) => error instanceof AppError && error.statusCode === 403);
   }
   assert.equal(reads, 0);
+});
+
+function createCachedTreeFixture() {
+  const root = path.resolve('cached-tree-project');
+  const state = {
+    now: 0,
+    directoryMtime: new Date('2026-01-02T03:04:05.000Z'),
+    gitignore: '*.log',
+    opened: [] as string[],
+    directories: new Map<string, FileTreeDirectoryEntry[]>([
+      [root, [createDirectoryEntry('README.md', false)]],
+    ]),
+  };
+  const fileSystem = createFakeFileSystem({
+    access: async () => undefined,
+    realpath: async (candidate) => candidate,
+    stat: async () => ({ ...createStats(true, 0o755), mtime: state.directoryMtime }),
+    lstat: async () => createStats(false, 0o644),
+    readTextFile: async () => state.gitignore,
+    writeTextFile: async () => undefined,
+    openDirectory: createDirectoryReader((directory) => {
+      state.opened.push(directory);
+      return state.directories.get(directory) ?? [];
+    }),
+  });
+  const dependencies = createDependencies(fileSystem, root);
+  dependencies.now = () => state.now;
+  return { root, state, dependencies };
+}
+
+test('shallow cache coalesces simultaneous reads and expires, refreshes, and detects external directory changes', async () => {
+  const { root, state, dependencies } = createCachedTreeFixture();
+  const service = createFileTreeService(dependencies);
+  const options = { respectGitignore: false, shallow: true };
+  const results = await Promise.all(Array.from({ length: 8 }, () => service.listProjectFiles('p1', options)));
+  assert.equal(state.opened.length, 1);
+  assert.ok(results.every((result) => result[0].name === 'README.md'));
+  await service.listProjectFiles('p1', options);
+  assert.equal(state.opened.length, 1);
+  state.now = 20_001;
+  await service.listProjectFiles('p1', options);
+  assert.equal(state.opened.length, 2);
+  await service.listProjectFiles('p1', { ...options, refresh: true });
+  assert.equal(state.opened.length, 3);
+  state.directoryMtime = new Date('2026-01-02T03:04:06.000Z');
+  state.directories.set(root, [createDirectoryEntry('new.md', false)]);
+  assert.equal((await service.listProjectFiles('p1', options))[0].name, 'new.md');
+  assert.equal(state.opened.length, 4);
+});
+
+test('directory cache respects gitignore mode and changes to the ignore file', async () => {
+  const { root, state, dependencies } = createCachedTreeFixture();
+  state.directories.set(root, [createDirectoryEntry('debug.log', false), createDirectoryEntry('README.md', false)]);
+  const service = createFileTreeService(dependencies);
+  assert.equal((await service.listProjectFiles('p1', { respectGitignore: true, shallow: true })).length, 1);
+  assert.equal((await service.listProjectFiles('p1', { respectGitignore: false, shallow: true })).length, 2);
+  state.gitignore = '*.md';
+  assert.deepEqual((await service.listProjectFiles('p1', { respectGitignore: true, shallow: true })).map((node) => node.name), ['debug.log']);
+  assert.equal(state.opened.length, 3);
+});
+
+test('writes invalidate cached parent workspaces and cannot be overwritten by an older pending read', async () => {
+  const { root, state, dependencies } = createCachedTreeFixture();
+  let finishRead: () => void = () => undefined;
+  let readStarted: () => void = () => undefined;
+  const started = new Promise<void>((resolve) => { readStarted = resolve; });
+  const blocked = new Promise<void>((resolve) => { finishRead = resolve; });
+  let reads = 0;
+  dependencies.fileSystem.openDirectory = async function* () {
+    const entries = state.directories.get(root) ?? [];
+    if (++reads === 1) {
+      readStarted();
+      await blocked;
+    }
+    yield* entries;
+  };
+  dependencies.projects.getProjectPathById = async (id) => id === 'nested' ? path.join(root, 'nested') : root;
+  const service = createFileTreeService(dependencies);
+  const oldRead = service.listProjectFiles('parent', { respectGitignore: false, shallow: true });
+  await started;
+  await service.saveTextFile('nested', 'new.md', 'new');
+  state.directories.set(root, [createDirectoryEntry('new.md', false)]);
+  finishRead();
+  assert.equal((await oldRead)[0].name, 'README.md');
+  assert.equal((await service.listProjectFiles('parent', { respectGitignore: false, shallow: true }))[0].name, 'new.md');
+  assert.equal(reads, 2);
+});
+
+test('cached directories are revalidated when a safe path becomes an escaping symlink', async () => {
+  const { root, state, dependencies } = createCachedTreeFixture();
+  const service = createFileTreeService(dependencies);
+  const options = { respectGitignore: false, shallow: true, directory: 'link' };
+  await service.listProjectFiles('p1', options);
+  dependencies.fileSystem.realpath = async (candidate) => candidate.endsWith('/link') ? path.dirname(root) : candidate;
+  await assert.rejects(service.listProjectFiles('p1', options), (error: unknown) => error instanceof AppError && error.statusCode === 403);
+  assert.equal(state.opened.length, 1);
+});
+
+test('snapshot preloads breadth-first with a depth bound while excluding dependency directories', async () => {
+  const { root, state, dependencies } = createCachedTreeFixture();
+  state.directories.set(root, [createDirectoryEntry('src', true), createDirectoryEntry('docs', true), createDirectoryEntry('node_modules', true), createDirectoryEntry('.git', true)]);
+  state.directories.set(path.join(root, 'docs'), [createDirectoryEntry('one', true)]);
+  state.directories.set(path.join(root, 'docs/one'), [createDirectoryEntry('two', true)]);
+  state.directories.set(path.join(root, 'docs/one/two'), [createDirectoryEntry('three', true)]);
+  state.directories.set(path.join(root, 'docs/one/two/three'), [createDirectoryEntry('deep.md', false)]);
+  const service = createFileTreeService(dependencies);
+  const snapshot = await service.snapshotProjectFiles('p1', { respectGitignore: false });
+  assert.equal(snapshot.rootPath, root);
+  assert.deepEqual(snapshot.directories.map((directory) => path.relative(root, directory.path)), ['', 'docs', 'src', 'docs/one', 'docs/one/two']);
+  assert.equal(snapshot.truncated, true);
+  assert.equal(snapshot.directories[0].children[0].children, undefined);
+  assert.equal(state.opened.some((directory) => /node_modules|\.git/.test(directory)), false);
+  const before = state.opened.length;
+  await service.listProjectFiles('p1', { respectGitignore: false, shallow: true, directory: 'docs' });
+  assert.equal(state.opened.length, before, 'Shallow requests reuse prefetched directories');
+});
+
+test('snapshot directory cap leaves the remaining directories unloaded', async () => {
+  const { root, state, dependencies } = createCachedTreeFixture();
+  state.directories.set(root, Array.from({ length: 200 }, (_, index) => createDirectoryEntry(`directory-${index}`, true)));
+  const snapshot = await createFileTreeService(dependencies).snapshotProjectFiles('p1', { respectGitignore: false });
+  assert.equal(snapshot.directories.length, 96);
+  assert.equal(state.opened.length, 96);
+  assert.equal(snapshot.directories[0].children.length, 200);
+  assert.equal(snapshot.truncated, true);
+});
+
+test('snapshot node budget omits entire directories instead of presenting partial listings', async () => {
+  const { root, state, dependencies } = createCachedTreeFixture();
+  state.directories.set(root, [createDirectoryEntry('a', true), createDirectoryEntry('b', true)]);
+  for (const directory of ['a', 'b']) {
+    state.directories.set(path.join(root, directory), Array.from({ length: 6000 }, (_, index) => createDirectoryEntry(`file-${index}.md`, false)));
+  }
+  const snapshot = await createFileTreeService(dependencies).snapshotProjectFiles('p1', { respectGitignore: false });
+  assert.deepEqual(snapshot.directories.map((directory) => path.relative(root, directory.path)), ['', 'a']);
+  assert.equal(snapshot.directories[1].children.length, 6000);
+  assert.equal(snapshot.directories.reduce((sum, directory) => sum + directory.children.length, 0), 6002);
+  assert.equal(snapshot.truncated, true);
+});
+
+test('snapshot time budget always preserves a complete root and stops speculative reads', async () => {
+  const { root, state, dependencies } = createCachedTreeFixture();
+  state.directories.set(root, [createDirectoryEntry('src', true), createDirectoryEntry('README.md', false)]);
+  dependencies.fileSystem.lstat = async () => { state.now = 400; return createStats(false, 0o644); };
+  const snapshot = await createFileTreeService(dependencies).snapshotProjectFiles('p1', { respectGitignore: false });
+  assert.deepEqual(snapshot.directories.map((directory) => directory.path), [root]);
+  assert.equal(snapshot.directories[0].children.length, 2);
+  assert.equal(snapshot.truncated, true);
+  assert.deepEqual(state.opened, [root]);
+});
+
+test('snapshot rejects unreadable roots without caching them as empty folders', async () => {
+  const { dependencies } = createCachedTreeFixture();
+  let reads = 0;
+  dependencies.fileSystem.openDirectory = async function* () {
+    yield* [];
+    reads += 1;
+    throw Object.assign(new Error('No permission'), { code: 'EACCES' });
+  };
+  const service = createFileTreeService(dependencies);
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    await assert.rejects(service.snapshotProjectFiles('p1', { respectGitignore: false }),
+      (error: unknown) => error instanceof AppError && error.statusCode === 403);
+  }
+  assert.equal(reads, 2);
+});
+
+test('directory cache evicts least recently used listings when its directory cap is reached', async () => {
+  const { state, dependencies } = createCachedTreeFixture();
+  const service = createFileTreeService(dependencies);
+  for (let index = 0; index < 257; index += 1) {
+    await service.listProjectFiles('p1', { respectGitignore: false, shallow: true, directory: `dir-${index}` });
+  }
+  await service.listProjectFiles('p1', { respectGitignore: false, shallow: true, directory: 'dir-256' });
+  assert.equal(state.opened.length, 257);
+  await service.listProjectFiles('p1', { respectGitignore: false, shallow: true, directory: 'dir-0' });
+  assert.equal(state.opened.length, 258);
 });

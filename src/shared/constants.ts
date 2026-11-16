@@ -78,6 +78,13 @@ export const DEFAULT_EFFORT_VALUE = 'default';
 
 // ---------------------------
 
+//----------------- WORKSPACE FILE EVENTS ------------
+
+/** Signals a successful editor save so the explorer can refresh cached file metadata. */
+export const FILE_TREE_CHANGED_EVENT = 'file-tree:changed';
+
+// ---------------------------
+
 //----------------- FILE UPLOAD LIMITS ------------
 
 /** Largest single file the upload endpoint accepts, in megabytes. Source of truth for the two derived limits below. */

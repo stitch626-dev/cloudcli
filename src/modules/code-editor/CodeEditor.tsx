@@ -7,6 +7,7 @@ import { useTranslation } from 'react-i18next';
 import { usePaletteOps } from '@/modules/command-palette';
 import { useTheme } from '@/shared/context/ThemeContext';
 import { useCodeEditorDocument } from '@/modules/code-editor/hooks/useCodeEditorDocument';
+import { useHtmlPreviewDocument } from '@/modules/code-editor/hooks/useHtmlPreviewDocument';
 import { useCodeEditorSettings } from '@/modules/code-editor/hooks/useCodeEditorSettings';
 import { useEditorKeyboardShortcuts } from '@/modules/code-editor/hooks/useEditorKeyboardShortcuts';
 import type { CodeEditorFile, CodeEditorGotoTarget } from '@/shared/types';
@@ -48,7 +49,15 @@ export default function CodeEditor({
   const paletteOps = usePaletteOps();
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showDiff, setShowDiff] = useState(Boolean(file.diffInfo));
-  const [markdownPreview, setMarkdownPreview] = useState(false);
+  const fileKey = JSON.stringify([file.projectId ?? projectPath, file.path, file.line, Boolean(file.diffInfo)]);
+  const defaultPreview = !file.line && !file.diffInfo;
+  // Keep the user's source/preview choice for this file; a newly opened file
+  // starts in preview unless it was opened at a source line or with a diff.
+  const [previewPreference, setPreviewPreference] = useState({ fileKey, enabled: defaultPreview });
+  if (previewPreference.fileKey !== fileKey) {
+    setPreviewPreference({ fileKey, enabled: defaultPreview });
+  }
+  const previewEnabled = previewPreference.fileKey === fileKey ? previewPreference.enabled : defaultPreview;
 
   // The code editor follows the app-wide theme; it has no theme of its own.
   const { isDarkMode } = useTheme();
@@ -128,23 +137,14 @@ export default function CodeEditor({
     return extension === 'html' || extension === 'htm';
   }, [file.name]);
 
-  const openHtmlPreview = useCallback(() => {
-    const previewWindow = window.open('', '_blank');
-    if (!previewWindow) return;
-
-    previewWindow.opener = null;
-    previewWindow.document.title = file.name;
-    previewWindow.document.body.style.margin = '0';
-
-    const iframe = previewWindow.document.createElement('iframe');
-    iframe.title = file.name;
-    iframe.sandbox.add('allow-forms', 'allow-modals', 'allow-popups', 'allow-scripts');
-    iframe.style.cssText = 'position:fixed;inset:0;width:100%;height:100%;border:0;background:white';
-
-    iframe.srcdoc = content;
-
-    previewWindow.document.body.appendChild(iframe);
-  }, [content, file.name]);
+  const htmlPreview = useHtmlPreviewDocument({
+    content,
+    filePath: file.path,
+    fileName: file.name,
+    projectId: fileProjectId,
+    projectPath,
+    enabled: isHtmlPreviewFile && previewEnabled && !loading,
+  });
 
   const minimapExtension = useMemo(
     () => (
@@ -306,12 +306,12 @@ export default function CodeEditor({
             isFullscreen={isFullscreen}
             isMarkdownFile={isMarkdownFile}
             isHtmlPreviewFile={isHtmlPreviewFile}
-            markdownPreview={markdownPreview}
+            previewEnabled={previewEnabled}
             saving={saving}
             saveSuccess={saveSuccess}
             hasUnsavedChanges={hasUnsavedChanges}
-            onToggleMarkdownPreview={() => setMarkdownPreview((previous) => !previous)}
-            onOpenHtmlPreview={openHtmlPreview}
+            onTogglePreview={() => setPreviewPreference({ fileKey, enabled: !previewEnabled })}
+            onOpenHtmlPreview={htmlPreview.openInNewTab}
             onOpenSettings={() => paletteOps.openSettings('appearance')}
             onDownload={handleDownload}
             onSave={handleSave}
@@ -321,8 +321,8 @@ export default function CodeEditor({
               showingChanges: t('header.showingChanges'),
               copyPath: t('actions.copyPath', 'Copy file path'),
               pathCopied: t('actions.pathCopied', 'File path copied'),
-              editMarkdown: t('actions.editMarkdown'),
-              previewMarkdown: t('actions.previewMarkdown'),
+              editSource: t('actions.editSource', 'Edit source'),
+              preview: t('actions.preview', 'Preview'),
               previewHtml: t('actions.previewHtml', 'Open HTML preview in new tab'),
               settings: t('toolbar.settings'),
               download: t('actions.download'),
@@ -346,8 +346,16 @@ export default function CodeEditor({
             <CodeEditorSurface
               content={content}
               onChange={setContent}
-              markdownPreview={markdownPreview}
+              previewEnabled={previewEnabled}
               isMarkdownFile={isMarkdownFile}
+              isHtmlFile={isHtmlPreviewFile}
+              htmlSrcDoc={htmlPreview.srcDoc}
+              htmlTitle={file.name}
+              htmlMissingResources={htmlPreview.missingResources}
+              htmlRequiresDevelopmentServer={htmlPreview.requiresDevelopmentServer}
+              previewLoadingLabel={t('filePreview.loading', 'Loading preview...')}
+              previewResourceWarning={t('filePreview.missingResources', 'Some local preview resources could not be loaded.')}
+              previewDevelopmentServerWarning={t('filePreview.developmentServerRequired', 'This HTML needs its project development server. The built-in preview may not display it completely.')}
               isDarkMode={isDarkMode}
               fontSize={fontSize}
               showLineNumbers={showLineNumbers}

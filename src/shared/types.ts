@@ -1034,7 +1034,16 @@ export type FileTreeNode = {
   modified?: string;
   permissionsRwx?: string;
   children?: FileTreeNode[];
+  /** Failed lazy directory reads show this message until a refresh retries them. */
+  loadError?: string;
   [key: string]: unknown;
+};
+
+/** A bounded batch of complete directory listings; omitted directories stay lazily loadable. */
+export type FileTreeSnapshot = {
+  rootPath: string;
+  directories: { path: string; children: FileTreeNode[] }[];
+  truncated: boolean;
 };
 
 /** The image the file tree asked to preview, carrying the path plus the DB `projectId` the image viewer needs to build its raw content URL. */

@@ -9,6 +9,8 @@
 
 export const AUTH_TOKEN_REFRESHED_EVENT = 'auth-token-refreshed';
 export const AUTH_SESSION_EXPIRED_EVENT = 'auth-session-expired';
+/** Clears private feature caches on manual logout, including features currently unmounted. */
+export const AUTH_SESSION_CLEARED_EVENT = 'auth-session-cleared';
 
 // Only accept a refreshed token that has this app's issued JWT shape
 // (three base64url segments). An attacker-injected/malformed header value

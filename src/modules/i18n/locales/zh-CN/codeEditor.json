@@ -24,7 +24,10 @@
     "fullscreen": "全屏",
     "close": "关闭",
     "previewMarkdown": "预览 Markdown",
-    "editMarkdown": "编辑 Markdown"
+    "editMarkdown": "编辑 Markdown",
+    "editSource": "编辑源码",
+    "preview": "预览",
+    "previewHtml": "在新标签页预览 HTML"
   },
   "footer": {
     "lines": "行数：",
@@ -38,7 +41,9 @@
   "filePreview": {
     "loading": "正在加载预览...",
     "error": "无法显示此文件。",
-    "openInNewTab": "在新标签页中打开"
+    "openInNewTab": "在新标签页中打开",
+    "missingResources": "部分本地预览资源无法加载。",
+    "developmentServerRequired": "此 HTML 依赖项目开发服务，内置预览可能无法完整显示。"
   },
   "unsavedChanges": {
     "confirmClose": "您有未保存的更改。关闭此文件并放弃这些更改？",

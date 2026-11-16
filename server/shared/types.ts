@@ -1582,6 +1582,21 @@ export type FileTreeServiceDependencies = {
   resolveMimeType(filePath: string): string;
   fileSystemConcurrency: number;
   logger: FileTreeLogger;
+  /** Monotonic-enough wall clock used for bounded directory cache and snapshot budgets. */
+  now(): number;
+};
+
+/**
+ * Bounded breadth-first directory snapshot returned to the File Tree browser.
+ * Each entry contains a complete shallow listing; an omitted directory remains
+ * unloaded and must never be interpreted as empty. rootPath is the requested
+ * snapshot starting directory, and truncated indicates more folders can load
+ * on demand because the depth, time, directory, or node budget was reached.
+ */
+export type FileTreeSnapshot = {
+  rootPath: string;
+  directories: Array<{ path: string; children: FileTreeNode[] }>;
+  truncated: boolean;
 };
 
 /**
@@ -1606,8 +1621,12 @@ export type FileTreeServices = {
   }>;
   listProjectFiles(
     projectId: string,
-    options?: { respectGitignore: boolean; shallow?: boolean; directory?: string },
+    options?: { respectGitignore: boolean; shallow?: boolean; directory?: string; refresh?: boolean },
   ): Promise<FileTreeNode[]>;
+  snapshotProjectFiles(
+    projectId: string,
+    options: { respectGitignore: boolean; directory?: string; refresh?: boolean },
+  ): Promise<FileTreeSnapshot>;
   createEntry(input: {
     projectId: string;
     parentPath: string;

@@ -20,6 +20,7 @@ function createFakeServices(overrides: Partial<FileTreeServices> = {}): FileTree
     openFile: unexpectedOperation,
     saveTextFile: unexpectedOperation,
     listProjectFiles: unexpectedOperation,
+    snapshotProjectFiles: unexpectedOperation,
     createEntry: unexpectedOperation,
     renameEntry: unexpectedOperation,
     deleteEntry: unexpectedOperation,
@@ -163,4 +164,27 @@ test('project files route forwards lazy directory requests without changing recu
     assert.equal(response.status, 200);
   });
   assert.deepEqual(inputs, [['p1', { respectGitignore: true, shallow: true, directory: 'src' }]]);
+});
+
+test('snapshot route parses directory, refresh and filtering and disables shared HTTP caching', async () => {
+  const inputs: Parameters<FileTreeServices['snapshotProjectFiles']>[] = [];
+  await withFileTreeServer(createFakeServices({ snapshotProjectFiles: async (...args) => {
+    inputs.push(args);
+    return { rootPath: '/project/docs', directories: [{ path: '/project/docs', children: [] }], truncated: false };
+  } }), async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/api/file-tree/projects/p1/files/snapshot?respectGitignore=true&directory=docs&refresh=true`);
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get('cache-control'), 'private, no-store');
+    assert.deepEqual(await response.json(), { rootPath: '/project/docs', directories: [{ path: '/project/docs', children: [] }], truncated: false });
+  });
+  assert.deepEqual(inputs, [['p1', { respectGitignore: true, directory: 'docs', refresh: true }]]);
+});
+
+test('shallow listing route forwards an explicit refresh', async () => {
+  const inputs: Parameters<FileTreeServices['listProjectFiles']>[] = [];
+  await withFileTreeServer(createFakeServices({ listProjectFiles: async (...args) => { inputs.push(args); return []; } }), async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/api/file-tree/projects/p1/files?shallow=true&refresh=true`);
+    assert.equal(response.status, 200);
+  });
+  assert.deepEqual(inputs, [['p1', { respectGitignore: false, shallow: true, directory: '', refresh: true }]]);
 });

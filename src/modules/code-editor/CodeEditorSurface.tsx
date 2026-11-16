@@ -5,13 +5,20 @@ import { oneDark } from '@codemirror/theme-one-dark';
 import type { Extension } from '@codemirror/state';
 
 import type { CodeEditorGotoTarget } from '@/shared/types';
-
 import MarkdownPreview from '@/modules/code-editor/markdown/MarkdownPreview';
 
 type CodeEditorSurfaceProps = {
   content: string;
   onChange: (value: string) => void;
-  markdownPreview: boolean;
+  previewEnabled: boolean;
+  isHtmlFile?: boolean;
+  htmlSrcDoc?: string;
+  htmlTitle?: string;
+  htmlMissingResources?: number;
+  htmlRequiresDevelopmentServer?: boolean;
+  previewLoadingLabel?: string;
+  previewResourceWarning?: string;
+  previewDevelopmentServerWarning?: string;
   isMarkdownFile: boolean;
   isDarkMode: boolean;
   fontSize: number;
@@ -21,11 +28,19 @@ type CodeEditorSurfaceProps = {
   gotoTarget?: CodeEditorGotoTarget | null;
 };
 
-/** Rendered by CodeEditor inside the code-editor module to show either the CodeMirror editing surface or the markdown preview. */
+/** Rendered by CodeEditor inside the code-editor module to show either the CodeMirror editing surface or the Markdown/HTML preview. */
 export default function CodeEditorSurface({
   content,
   onChange,
-  markdownPreview,
+  previewEnabled,
+  isHtmlFile = false,
+  htmlSrcDoc,
+  htmlTitle,
+  htmlMissingResources = 0,
+  htmlRequiresDevelopmentServer = false,
+  previewLoadingLabel,
+  previewResourceWarning,
+  previewDevelopmentServerWarning,
   isMarkdownFile,
   isDarkMode,
   fontSize,
@@ -57,12 +72,35 @@ export default function CodeEditorSurface({
     });
   }, [view, gotoTarget, content]);
 
-  if (markdownPreview && isMarkdownFile) {
+  if (previewEnabled && isMarkdownFile) {
     return (
       <div className="h-full overflow-y-auto bg-white dark:bg-gray-900">
         <div className="prose prose-sm mx-auto max-w-4xl px-8 py-6 dark:prose-invert prose-headings:font-semibold prose-a:text-blue-600 prose-code:text-sm prose-pre:bg-gray-900 prose-img:rounded-lg dark:prose-a:text-blue-400">
           <MarkdownPreview content={content} />
         </div>
+      </div>
+    );
+  }
+
+  if (previewEnabled && isHtmlFile) {
+    return (
+      <div className="flex h-full flex-col bg-white">
+        {(htmlRequiresDevelopmentServer || htmlMissingResources > 0) && (
+          <div role="status" className="border-b border-amber-200 bg-amber-50 px-3 py-1.5 text-xs text-amber-900">
+            {htmlRequiresDevelopmentServer ? previewDevelopmentServerWarning : previewResourceWarning}
+          </div>
+        )}
+        {htmlSrcDoc === undefined ? (
+          <div role="status" className="p-4 text-sm text-gray-500">{previewLoadingLabel}</div>
+        ) : (
+          <iframe
+            title={htmlTitle}
+            srcDoc={htmlSrcDoc}
+            sandbox="allow-scripts"
+            referrerPolicy="no-referrer"
+            className="h-full min-h-0 w-full flex-1 border-0 bg-white"
+          />
+        )}
       </div>
     );
   }

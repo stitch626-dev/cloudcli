@@ -22,7 +22,10 @@
     "saved": "已儲存！",
     "exitFullscreen": "離開全螢幕",
     "fullscreen": "全螢幕",
-    "close": "關閉"
+    "close": "關閉",
+    "editSource": "編輯原始碼",
+    "preview": "預覽",
+    "previewHtml": "在新分頁預覽 HTML"
   },
   "footer": {
     "lines": "行數：",
@@ -36,5 +39,9 @@
   "unsavedChanges": {
     "confirmClose": "您有未儲存的變更。關閉此檔案並放棄這些變更？",
     "indicator": "未儲存的變更"
+  },
+  "filePreview": {
+    "missingResources": "部分本機預覽資源無法載入。",
+    "developmentServerRequired": "此 HTML 依賴專案開發服務，內建預覽可能無法完整顯示。"
   }
 }

@@ -7,6 +7,7 @@ import type {
   FileTreeNode,
   FileTreeServiceDependencies,
   FileTreeServices,
+  FileTreeSnapshot,
   FileTreeUploadedFile,
 } from '@/shared/types.js';
 import {
@@ -42,8 +43,27 @@ const COMMON_WORKSPACE_DIRECTORY_NAMES = [
 // broad workspace (for example, a user's home directory) cannot exhaust the
 // server heap before the browser has a chance to switch to a narrower project.
 const MAXIMUM_FILE_TREE_ENTRIES = 10_000;
+const DIRECTORY_CACHE_TTL_MS = 20_000;
+const MAXIMUM_CACHED_DIRECTORIES = 256;
+const MAXIMUM_CACHED_ENTRIES = 30_000;
+const SNAPSHOT_MAXIMUM_DIRECTORIES = 96;
+const SNAPSHOT_MAXIMUM_DEPTH = 3;
+const SNAPSHOT_CONCURRENCY = 4;
+const SNAPSHOT_BUDGET_MS = 300;
 
 type FileTreeEntryFilter = (entryPath: string, isDirectory: boolean) => boolean;
+type DirectoryListingContext = {
+  projectRoot: string;
+  canonicalRoot: string;
+  includeEntry: FileTreeEntryFilter;
+  filterSignature: string;
+};
+type CachedDirectory = {
+  projectRoot: string;
+  signature: string;
+  expiresAt: number;
+  children: FileTreeNode[];
+};
 
 function includeEntryByHardExclusions(entryPath: string, isDirectory: boolean): boolean {
   return !isDirectory || !HARD_EXCLUDED_DIRECTORY_NAMES.has(path.basename(entryPath));
@@ -184,6 +204,34 @@ export function createFileTreeService(dependencies: FileTreeServiceDependencies)
     ? Math.floor(dependencies.fileSystemConcurrency)
     : 1;
   const { acquire, release } = createConcurrencyLimiter(concurrencyLimit);
+  const directoryCache = new Map<string, CachedDirectory>();
+  const pendingDirectories = new Map<string, {
+    projectRoot: string;
+    signature: string;
+    promise: Promise<FileTreeNode[]>;
+  }>();
+  let cachedEntryCount = 0;
+
+  function removeCachedDirectory(key: string): void {
+    const cached = directoryCache.get(key);
+    if (cached) cachedEntryCount -= cached.children.length;
+    directoryCache.delete(key);
+  }
+
+  function invalidateDirectoryCache(projectRoot?: string): void {
+    const overlapsProject = (cachedRoot: string) => !projectRoot
+      || cachedRoot === projectRoot
+      || cachedRoot.startsWith(`${projectRoot}${path.sep}`)
+      || projectRoot.startsWith(`${cachedRoot}${path.sep}`);
+    for (const [key, cached] of directoryCache) {
+      if (overlapsProject(cached.projectRoot)) removeCachedDirectory(key);
+    }
+    // Removing the pending identity also prevents a pre-mutation read from
+    // repopulating the cache after a write or explicit refresh finishes.
+    for (const [key, pending] of pendingDirectories) {
+      if (overlapsProject(pending.projectRoot)) pendingDirectories.delete(key);
+    }
+  }
 
   async function resolveProjectRoot(projectId: string): Promise<string> {
     const projectRoot = await dependencies.projects.getProjectPathById(projectId);
@@ -204,6 +252,7 @@ export function createFileTreeService(dependencies: FileTreeServiceDependencies)
     directoryPath: string,
     includeEntry: FileTreeEntryFilter,
     remainingEntries: { value: number },
+    strictRead = false,
   ): Promise<FileTreeDirectoryEntry[]> {
     const visibleEntries: FileTreeDirectoryEntry[] = [];
 
@@ -233,6 +282,14 @@ export function createFileTreeService(dependencies: FileTreeServiceDependencies)
       if (error instanceof AppError) {
         throw error;
       }
+      if (strictRead) {
+        mapFileSystemError(error, {
+          ENOENT: { message: 'Directory not found', statusCode: 404 },
+          ENOTDIR: { message: 'Path is not a directory', statusCode: 400 },
+          EACCES: { message: 'Permission denied', statusCode: 403 },
+          EPERM: { message: 'Permission denied', statusCode: 403 },
+        });
+      }
       const errorCode = readErrorCode(error);
       if (errorCode !== 'EACCES' && errorCode !== 'EPERM') {
         dependencies.logger.error(`Error reading directory "${directoryPath}"`, error);
@@ -251,8 +308,9 @@ export function createFileTreeService(dependencies: FileTreeServiceDependencies)
     currentDepth = 0,
     includeEntry: FileTreeEntryFilter = includeEntryByFallbackDirectoryNames,
     remainingEntries = { value: MAXIMUM_FILE_TREE_ENTRIES },
+    strictRead = false,
   ): Promise<FileTreeNode[]> {
-    const visibleEntries = await collectVisibleEntries(directoryPath, includeEntry, remainingEntries);
+    const visibleEntries = await collectVisibleEntries(directoryPath, includeEntry, remainingEntries, strictRead);
 
     const items = await Promise.all(visibleEntries.map(async (entry): Promise<FileTreeNode> => {
       const itemPath = path.join(directoryPath, entry.name);
@@ -315,6 +373,98 @@ export function createFileTreeService(dependencies: FileTreeServiceDependencies)
       }
       return left.name.localeCompare(right.name);
     });
+  }
+
+  async function createDirectoryListingContext(
+    projectId: string,
+    respectGitignore: boolean,
+    refresh = false,
+  ): Promise<DirectoryListingContext> {
+    const projectRoot = path.resolve(await resolveProjectRoot(projectId));
+    try {
+      await fileSystem.access(projectRoot);
+    } catch {
+      throw createFileTreeError(`Project path not found: ${projectRoot}`, 404, 'PROJECT_PATH_NOT_FOUND');
+    }
+    const canonicalRoot = await fileSystem.realpath(projectRoot);
+    if (refresh) invalidateDirectoryCache(projectRoot);
+    let includeEntry = includeEntryByFallbackDirectoryNames;
+    let filterSignature = 'fallback';
+    if (respectGitignore) {
+      try {
+        const content = await fileSystem.readTextFile(path.join(projectRoot, '.gitignore'));
+        includeEntry = createGitignoreEntryFilter(projectRoot, content);
+        filterSignature = `gitignore:${content}`;
+      } catch (error) {
+        if (readErrorCode(error) !== 'ENOENT') {
+          dependencies.logger.error(`Error reading .gitignore in "${projectRoot}"`, error);
+        }
+      }
+    }
+    return { projectRoot, canonicalRoot, includeEntry, filterSignature };
+  }
+
+  async function readCachedDirectory(
+    context: DirectoryListingContext,
+    directoryPath: string,
+  ): Promise<FileTreeNode[]> {
+    // Always re-resolve before a cache hit: an external process may have
+    // replaced a previously safe directory with an escaping symlink.
+    const lexicalRelative = path.relative(context.projectRoot, directoryPath);
+    if (lexicalRelative === '..' || lexicalRelative.startsWith(`..${path.sep}`) || path.isAbsolute(lexicalRelative)) {
+      throw createFileTreeError('Directory must be under project root', 403, 'PATH_OUTSIDE_PROJECT');
+    }
+    const canonicalDirectory = await fileSystem.realpath(directoryPath).catch((error: unknown) => mapFileSystemError(error, {
+      ENOENT: { message: 'Directory not found', statusCode: 404 },
+      EACCES: { message: 'Permission denied', statusCode: 403 },
+      EPERM: { message: 'Permission denied', statusCode: 403 },
+    }));
+    const relative = path.relative(context.canonicalRoot, canonicalDirectory);
+    if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)
+      || FORBIDDEN_WORKSPACE_PATHS.includes(normalizeProjectPath(canonicalDirectory))) {
+      throw createFileTreeError('Directory must be under project root', 403, 'PATH_OUTSIDE_PROJECT');
+    }
+    const stats = await fileSystem.stat(canonicalDirectory);
+    if (!stats.isDirectory()) {
+      throw createFileTreeError('Path is not a directory', 400, 'NOT_A_DIRECTORY');
+    }
+    const key = JSON.stringify([context.projectRoot, directoryPath]);
+    const signature = JSON.stringify([
+      canonicalDirectory, stats.mtime.toISOString(), stats.mode, context.filterSignature,
+    ]);
+    const cached = directoryCache.get(key);
+    if (cached && cached.signature === signature && cached.expiresAt > dependencies.now()) {
+      directoryCache.delete(key);
+      directoryCache.set(key, cached);
+      return cached.children;
+    }
+    removeCachedDirectory(key);
+    const pending = pendingDirectories.get(key);
+    if (pending?.signature === signature) return pending.promise;
+
+    const promise = buildFileTree(directoryPath, 0, 0, context.includeEntry, { value: MAXIMUM_FILE_TREE_ENTRIES }, true);
+    pendingDirectories.set(key, { projectRoot: context.projectRoot, signature, promise });
+    try {
+      const children = await promise;
+      if (pendingDirectories.get(key)?.promise === promise) {
+        removeCachedDirectory(key);
+        directoryCache.set(key, {
+          projectRoot: context.projectRoot,
+          signature,
+          expiresAt: dependencies.now() + DIRECTORY_CACHE_TTL_MS,
+          children,
+        });
+        cachedEntryCount += children.length;
+        while (directoryCache.size > MAXIMUM_CACHED_DIRECTORIES || cachedEntryCount > MAXIMUM_CACHED_ENTRIES) {
+          const oldestKey = directoryCache.keys().next().value;
+          if (oldestKey === undefined) break;
+          removeCachedDirectory(oldestKey);
+        }
+      }
+      return children;
+    } finally {
+      if (pendingDirectories.get(key)?.promise === promise) pendingDirectories.delete(key);
+    }
   }
 
   /**
@@ -480,6 +630,7 @@ export function createFileTreeService(dependencies: FileTreeServiceDependencies)
           EEXIST: { message: 'Folder already exists', statusCode: 409 },
         });
       }
+      invalidateDirectoryCache();
 
       return { success: true, path: targetPath };
     },
@@ -525,11 +676,16 @@ export function createFileTreeService(dependencies: FileTreeServiceDependencies)
           EACCES: { message: 'Permission denied', statusCode: 403 },
         });
       }
+      invalidateDirectoryCache(projectRoot);
 
       return { success: true, path: resolvedPath, message: 'File saved successfully' };
     },
 
     async listProjectFiles(projectId, options) {
+      if (options?.shallow) {
+        const context = await createDirectoryListingContext(projectId, options.respectGitignore, options.refresh);
+        return readCachedDirectory(context, path.resolve(context.projectRoot, options.directory || '.'));
+      }
       const projectRoot = await resolveProjectRoot(projectId);
       try {
         await fileSystem.access(projectRoot);
@@ -549,23 +705,55 @@ export function createFileTreeService(dependencies: FileTreeServiceDependencies)
         }
       }
 
-      if (options?.shallow) {
-        // Resolve both lexical traversal and symlink escapes before enumerating.
-        const directoryPath = path.resolve(projectRoot, options.directory || '.');
-        const canonicalRoot = await fileSystem.realpath(projectRoot);
-        const canonicalDirectory = await fileSystem.realpath(directoryPath);
-        const relative = path.relative(canonicalRoot, canonicalDirectory);
-        if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)
-          || FORBIDDEN_WORKSPACE_PATHS.includes(normalizeProjectPath(canonicalDirectory))) {
-          throw createFileTreeError('Directory must be under project root', 403, 'PATH_OUTSIDE_PROJECT');
-        }
-        const stats = await fileSystem.stat(canonicalDirectory);
-        if (!stats.isDirectory()) {
-          throw createFileTreeError('Path is not a directory', 400, 'NOT_A_DIRECTORY');
-        }
-        return buildFileTree(directoryPath, 0, 0, includeEntry);
-      }
       return buildFileTree(projectRoot, 10, 0, includeEntry);
+    },
+
+    async snapshotProjectFiles(projectId, options) {
+      const startedAt = dependencies.now();
+      const context = await createDirectoryListingContext(projectId, options.respectGitignore, options.refresh);
+      const rootPath = path.resolve(context.projectRoot, options.directory || '.');
+      // Root is always complete, even when its read alone exceeds the time
+      // budget. Subdirectories are optional; partial children are never sent.
+      const rootChildren = await readCachedDirectory(context, rootPath);
+      const snapshot: FileTreeSnapshot = {
+        rootPath,
+        directories: [{ path: rootPath, children: rootChildren }],
+        truncated: false,
+      };
+      let remainingEntries = MAXIMUM_FILE_TREE_ENTRIES - rootChildren.length;
+      let attemptedDirectories = 1;
+      const queue: Array<{ path: string; depth: number }> = [];
+      const enqueueChildren = (children: FileTreeNode[], depth: number) => {
+        for (const child of children) {
+          if (child.type !== 'directory' || child.isSymlink) continue;
+          if (depth > SNAPSHOT_MAXIMUM_DEPTH) {
+            snapshot.truncated = true;
+          } else {
+            queue.push({ path: child.path, depth });
+          }
+        }
+      };
+      enqueueChildren(rootChildren, 1);
+      while (queue.length > 0 && attemptedDirectories < SNAPSHOT_MAXIMUM_DIRECTORIES
+        && remainingEntries > 0 && dependencies.now() - startedAt < SNAPSHOT_BUDGET_MS) {
+        const batch = queue.splice(0, Math.min(SNAPSHOT_CONCURRENCY, SNAPSHOT_MAXIMUM_DIRECTORIES - attemptedDirectories));
+        attemptedDirectories += batch.length;
+        const results = await Promise.allSettled(batch.map((directory) => readCachedDirectory(context, directory.path)));
+        for (let index = 0; index < batch.length; index += 1) {
+          const result = results[index];
+          const directory = batch[index];
+          if (result.status === 'rejected' || result.value.length > remainingEntries) {
+            snapshot.truncated = true;
+            continue;
+          }
+          const children = result.value;
+          remainingEntries -= children.length;
+          snapshot.directories.push({ path: directory.path, children });
+          enqueueChildren(children, directory.depth + 1);
+        }
+      }
+      if (queue.length > 0) snapshot.truncated = true;
+      return snapshot;
     },
 
     async createEntry(input) {
@@ -605,6 +793,8 @@ export function createFileTreeService(dependencies: FileTreeServiceDependencies)
           ENOENT: { message: 'Parent directory not found', statusCode: 404 },
         });
       }
+
+      invalidateDirectoryCache(projectRoot);
 
       return {
         success: true,
@@ -648,6 +838,7 @@ export function createFileTreeService(dependencies: FileTreeServiceDependencies)
           EXDEV: { message: 'Cannot move across different filesystems', statusCode: 400 },
         });
       }
+      invalidateDirectoryCache(projectRoot);
 
       return {
         success: true,
@@ -685,6 +876,7 @@ export function createFileTreeService(dependencies: FileTreeServiceDependencies)
           ENOTEMPTY: { message: 'Directory is not empty', statusCode: 400 },
         });
       }
+      invalidateDirectoryCache(projectRoot);
 
       const entryType = stats.isDirectory() ? 'directory' as const : 'file' as const;
       return {
@@ -738,6 +930,9 @@ export function createFileTreeService(dependencies: FileTreeServiceDependencies)
           }
 
           await fileSystem.copyFile(file.temporaryPath, destinationPath);
+          // Invalidate after each copy so a later upload failure cannot leave
+          // successful earlier copies invisible until the cache expires.
+          invalidateDirectoryCache(projectRoot);
           await fileSystem.unlink(file.temporaryPath);
           uploadedFiles.push({
             name: fileName,

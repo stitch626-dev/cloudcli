@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Check, Code2, Copy, Download, Eye, Maximize2, Minimize2, Save, Settings as SettingsIcon, X } from 'lucide-react';
+import { Check, Code2, Copy, Download, Eye, ExternalLink, Maximize2, Minimize2, Save, Settings as SettingsIcon, X } from 'lucide-react';
 
 import { copyTextToClipboard } from '@/shared/utils';
 import type { CodeEditorFile } from '@/shared/types';
@@ -10,11 +10,11 @@ type CodeEditorHeaderProps = {
   isFullscreen: boolean;
   isMarkdownFile: boolean;
   isHtmlPreviewFile: boolean;
-  markdownPreview: boolean;
+  previewEnabled: boolean;
   saving: boolean;
   saveSuccess: boolean;
   hasUnsavedChanges: boolean;
-  onToggleMarkdownPreview: () => void;
+  onTogglePreview: () => void;
   onOpenHtmlPreview: () => void;
   onOpenSettings: () => void;
   onDownload: () => void;
@@ -25,8 +25,8 @@ type CodeEditorHeaderProps = {
     showingChanges: string;
     copyPath: string;
     pathCopied: string;
-    editMarkdown: string;
-    previewMarkdown: string;
+    editSource: string;
+    preview: string;
     previewHtml: string;
     settings: string;
     download: string;
@@ -47,11 +47,11 @@ export default function CodeEditorHeader({
   isFullscreen,
   isMarkdownFile,
   isHtmlPreviewFile,
-  markdownPreview,
+  previewEnabled,
   saving,
   saveSuccess,
   hasUnsavedChanges,
-  onToggleMarkdownPreview,
+  onTogglePreview,
   onOpenHtmlPreview,
   onOpenSettings,
   onDownload,
@@ -124,18 +124,20 @@ export default function CodeEditorHeader({
 
       {/* Buttons - don't shrink, always visible */}
       <div className="flex shrink-0 items-center gap-0.5">
-        {isMarkdownFile && (
+        {(isMarkdownFile || isHtmlPreviewFile) && (
           <button
             type="button"
-            onClick={onToggleMarkdownPreview}
+            onClick={onTogglePreview}
             className={`flex items-center justify-center rounded-md p-1.5 transition-colors ${
-              markdownPreview
+              previewEnabled
                 ? 'bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400'
                 : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-white'
             }`}
-            title={markdownPreview ? labels.editMarkdown : labels.previewMarkdown}
+            title={previewEnabled ? labels.editSource : labels.preview}
+            aria-label={previewEnabled ? labels.editSource : labels.preview}
+            aria-pressed={previewEnabled}
           >
-            {markdownPreview ? <Code2 className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+            {previewEnabled ? <Code2 className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
           </button>
         )}
 
@@ -146,7 +148,7 @@ export default function CodeEditorHeader({
             className="flex items-center justify-center rounded-md p-1.5 text-gray-600 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-white"
             title={labels.previewHtml}
           >
-            <Eye className="h-4 w-4" />
+            <ExternalLink className="h-4 w-4" />
           </button>
         )}
 

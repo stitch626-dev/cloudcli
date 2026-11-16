@@ -41,7 +41,7 @@ const renderSurface = (content: string, gotoTarget: CodeEditorGotoTarget | null)
     <CodeEditorSurface
       content={content}
       onChange={() => undefined}
-      markdownPreview={false}
+      previewEnabled={false}
       isMarkdownFile={false}
       isDarkMode={false}
       fontSize={14}
@@ -75,7 +75,7 @@ test('editing the file does not pull the caret back to the reference', () => {
     <CodeEditorSurface
       content={`${documentText}!`}
       onChange={() => undefined}
-      markdownPreview={false}
+      previewEnabled={false}
       isMarkdownFile={false}
       isDarkMode={false}
       fontSize={14}
@@ -94,7 +94,7 @@ test('clicking the same reference again is a new request and jumps again', () =>
     <CodeEditorSurface
       content={documentText}
       onChange={() => undefined}
-      markdownPreview={false}
+      previewEnabled={false}
       isMarkdownFile={false}
       isDarkMode={false}
       fontSize={14}

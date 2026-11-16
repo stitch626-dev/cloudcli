@@ -51,7 +51,7 @@ export default function FileTree({ selectedProject, onFileOpen, revealDirectory 
   }, [toast]);
 
   const { expandedDirs, toggleDirectory, expandDirectories, collapseAll } = useExpandedDirectories();
-  const { files, loading, error, refreshFiles } = useFileTreeData(selectedProject, expandedDirs);
+  const { files, loading, refreshing, error, refreshFiles } = useFileTreeData(selectedProject, expandedDirs);
   const { viewMode, changeViewMode } = useFileTreeViewMode();
   const { searchQuery, setSearchQuery, filteredFiles } = useFileTreeSearch({
     files,
@@ -209,7 +209,7 @@ export default function FileTree({ selectedProject, onFileOpen, revealDirectory 
         onNewFolder={() => operations.handleStartCreate('', 'directory')}
         onRefresh={refreshFiles}
         onCollapseAll={collapseAll}
-        loading={loading}
+        loading={refreshing}
         operationLoading={operationLoading}
         isUploading={upload.uploadProgress?.status === 'uploading'}
         uploadProgress={upload.uploadProgress?.progress ?? null}

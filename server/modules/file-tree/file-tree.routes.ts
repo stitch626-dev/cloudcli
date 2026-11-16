@@ -162,12 +162,23 @@ export function createFileTreeRouter(
   }, logger));
 
   router.get('/projects/:projectId/files', createRouteHandler(async (request, response) => {
+    response.setHeader('Cache-Control', 'private, no-store');
     response.json(await services.listProjectFiles(readProjectId(request), {
       respectGitignore: request.query.respectGitignore === 'true',
+      ...(request.query.refresh === 'true' ? { refresh: true } : {}),
       ...(request.query.shallow === 'true' ? {
         shallow: true,
         directory: readOptionalString(request.query.directory) ?? '',
       } : {}),
+    }));
+  }, logger));
+
+  router.get('/projects/:projectId/files/snapshot', createRouteHandler(async (request, response) => {
+    response.setHeader('Cache-Control', 'private, no-store');
+    response.json(await services.snapshotProjectFiles(readProjectId(request), {
+      respectGitignore: request.query.respectGitignore === 'true',
+      directory: readOptionalString(request.query.directory) ?? '',
+      refresh: request.query.refresh === 'true',
     }));
   }, logger));
 

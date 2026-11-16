@@ -5,6 +5,7 @@ import {
 } from '@/shared/authToken';
 import { IS_PLATFORM } from '@/shared/utils';
 import { readVoiceConfig, voiceConfigHeaders } from '@/shared/voiceConfig';
+import { FILE_TREE_CHANGED_EVENT } from '@/shared/constants';
 
 // Headers are a plain record rather than the full `HeadersInit` union so the
 // defaults below can be merged with a caller's headers by spreading.
@@ -310,11 +311,21 @@ export const api = {
   readFileBlob: (projectId: string, filePath: string, options: ApiRequestOptions = {}) =>
     get(fileContentPath(projectId, filePath), options),
   saveFile: (projectId: string, filePath: string, content: string) =>
-    put(`/api/file-tree/projects/${projectId}/file`, { filePath, content }),
+    put(`/api/file-tree/projects/${projectId}/file`, { filePath, content }).then((response) => {
+      if (response.ok) window.dispatchEvent(new CustomEvent(FILE_TREE_CHANGED_EVENT, { detail: { projectId, filePath } }));
+      return response;
+    }),
   getFiles: (projectId: string, options: ApiRequestOptions = {}, directory?: string) =>
     get(`/api/file-tree/projects/${projectId}/files${query({
       respectGitignore: true,
       ...(directory !== undefined ? { shallow: true, directory } : {}),
+    })}`, options),
+  // One bounded snapshot preloads neighboring folders without sequential network round trips.
+  getFileTreeSnapshot: (projectId: string, options: ApiRequestOptions = {}, directory = '', refresh = false) =>
+    get(`/api/file-tree/projects/${encodeURIComponent(projectId)}/files/snapshot${query({
+      directory,
+      respectGitignore: true,
+      refresh,
     })}`, options),
 
   // File operations

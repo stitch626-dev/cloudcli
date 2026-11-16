@@ -244,8 +244,8 @@ export default function FileTreeNode({
       )}
 
       {isDirectory && isOpen && item.children === undefined && (
-        <div className="py-1 text-xs text-muted-foreground" style={{ paddingLeft: `${(level + 1) * 16 + 22}px` }}>
-          {t('fileTree.loading')}
+        <div className={cn('py-1 text-xs', item.loadError ? 'text-destructive' : 'text-muted-foreground')} style={{ paddingLeft: `${(level + 1) * 16 + 22}px` }}>
+          {item.loadError || t('fileTree.loading')}
         </div>
       )}
       {isDirectory && isOpen && hasChildren && (
