@@ -57,6 +57,21 @@ async function withFileTreeServer(
   }
 }
 
+test('large text reads negotiate compression, preserve Unicode, and disable caching', async () => {
+  const document = { content: '中文小说 📚\n'.repeat(10_000), path: '/repo/novel.txt' };
+  await withFileTreeServer(createFakeServices({ readTextFile: async () => document }), async (baseUrl) => {
+    const url = `${baseUrl}/api/file-tree/projects/project-1/file?filePath=novel.txt`;
+    const compressed = await fetch(url, { headers: { 'Accept-Encoding': 'gzip' } });
+    assert.equal(compressed.headers.get('content-encoding'), 'gzip');
+    assert.equal(compressed.headers.get('cache-control'), 'private, no-store');
+    assert.match(compressed.headers.get('vary') || '', /Accept-Encoding/);
+    assert.deepEqual(await compressed.json(), document);
+    const plain = await fetch(url, { headers: { 'Accept-Encoding': 'identity' } });
+    assert.equal(plain.headers.get('content-encoding'), null);
+    assert.deepEqual(await plain.json(), document);
+  });
+});
+
 test('project files route uses the File Tree API namespace and forwards the project id', async () => {
   const inputs: Parameters<FileTreeServices['listProjectFiles']>[] = [];
   const services = createFakeServices({

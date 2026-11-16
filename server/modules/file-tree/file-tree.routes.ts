@@ -1,5 +1,6 @@
 import express from 'express';
 import type { NextFunction, Request, RequestHandler, Response } from 'express';
+import compression from 'compression';
 
 import type {
   FileTreeLogger,
@@ -125,7 +126,10 @@ export function createFileTreeRouter(
     response.json(await services.createWorkspaceFolder(folderPath));
   }, logger));
 
-  router.get('/projects/:projectId/file', createRouteHandler(async (request, response) => {
+  // Large novels otherwise cross the public proxy as several megabytes of JSON.
+  // Restrict compression to text reads so media streaming keeps its byte semantics.
+  router.get('/projects/:projectId/file', compression(), createRouteHandler(async (request, response) => {
+    response.setHeader('Cache-Control', 'private, no-store');
     const filePath = readRequiredString(request.query.filePath, 'filePath', 'Invalid file path');
     response.json(await services.readTextFile(readProjectId(request), filePath));
   }, logger));
