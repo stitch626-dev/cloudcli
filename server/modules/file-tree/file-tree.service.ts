@@ -385,7 +385,10 @@ export function createFileTreeService(dependencies: FileTreeServiceDependencies)
     async browseWorkspace(inputPath) {
       const requestedPath = inputPath
         ? expandWorkspacePath(dependencies.workspace.rootPath, inputPath)
-        : dependencies.workspace.rootPath;
+        : expandWorkspacePath(
+            dependencies.workspace.rootPath,
+            dependencies.workspace.defaultBrowsePath || dependencies.workspace.rootPath,
+          );
       const targetPath = path.resolve(requestedPath);
       const resolvedPath = await resolveBrowsablePath(targetPath);
 
@@ -400,17 +403,36 @@ export function createFileTreeService(dependencies: FileTreeServiceDependencies)
         throw createFileTreeError('Directory not accessible', 404, 'DIRECTORY_NOT_ACCESSIBLE');
       }
 
-      const fileTree = await buildFileTree(resolvedPath, 1);
-      const directories = fileTree
-        .filter((item) => item.type === 'directory')
-        .map((item) => ({ path: item.path, name: item.name, type: 'directory' as const }))
-        .sort((left, right) => {
-          const leftHidden = left.name.startsWith('.');
-          const rightHidden = right.name.startsWith('.');
-          if (leftHidden && !rightHidden) return 1;
-          if (!leftHidden && rightHidden) return -1;
-          return left.name.localeCompare(right.name);
-        });
+      // The picker only needs names in this directory. Recursing or reading
+      // child metadata can block on macOS protected folders and large caches.
+      // Keep this outside the recursive project-tree limiter so an ongoing
+      // project scan cannot prevent the user from choosing a different folder.
+      const directories: Array<{ path: string; name: string; type: 'directory' }> = [];
+      try {
+        for await (const entry of fileSystem.openDirectory(resolvedPath)) {
+          if (!entry.isDirectory() || !includeEntryByHardExclusions(entry.name, true)) {
+            continue;
+          }
+          if (directories.length >= MAXIMUM_FILE_TREE_ENTRIES) {
+            throw createFileTreeError(
+              'Too many folders in this directory. Enter a narrower path.',
+              413,
+              'FILE_TREE_TOO_LARGE',
+            );
+          }
+          directories.push({ path: path.join(resolvedPath, entry.name), name: entry.name, type: 'directory' });
+        }
+      } catch (error) {
+        if (error instanceof AppError) throw error;
+        throw createFileTreeError('Directory not accessible', 404, 'DIRECTORY_NOT_ACCESSIBLE');
+      }
+      directories.sort((left, right) => {
+        const leftHidden = left.name.startsWith('.');
+        const rightHidden = right.name.startsWith('.');
+        if (leftHidden && !rightHidden) return 1;
+        if (!leftHidden && rightHidden) return -1;
+        return left.name.localeCompare(right.name);
+      });
 
       let resolvedWorkspaceRoot = dependencies.workspace.rootPath;
       try {

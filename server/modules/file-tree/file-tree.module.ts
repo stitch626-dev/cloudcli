@@ -72,6 +72,7 @@ const fileTreeProjects: FileTreeProjectGateway = {
  */
 const fileTreeWorkspace: FileTreeWorkspaceGateway = {
   rootPath: WORKSPACES_ROOT,
+  defaultBrowsePath: process.env.WORKSPACE_BROWSE_START,
   validatePath: (candidatePath) => validateWorkspacePath(candidatePath),
   resolveReadOnlyRootPath: (candidatePath) => resolveReadOnlyRootPath(candidatePath),
 };

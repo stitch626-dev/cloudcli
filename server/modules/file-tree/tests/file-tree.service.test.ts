@@ -95,6 +95,96 @@ function createDependencies(
   };
 }
 
+test('browseWorkspace lists only immediate directories without reading child metadata', async () => {
+  const root = path.resolve('folder-browser-root');
+  const opened: string[] = [];
+  let metadataReads = 0;
+  const fileSystem = createFakeFileSystem({
+    access: async () => undefined,
+    stat: async () => createStats(true, 0o755),
+    realpath: async (candidate) => candidate,
+    lstat: async () => {
+      metadataReads += 1;
+      throw new Error('Protected child metadata must never be accessed');
+    },
+    openDirectory: createDirectoryReader((directoryPath) => {
+      opened.push(directoryPath);
+      assert.equal(directoryPath, root, 'Do not descend into protected or large children');
+      return [
+        createDirectoryEntry('Library', true),
+        createDirectoryEntry('Projects', true),
+        createDirectoryEntry('.cache', true),
+        createDirectoryEntry('dist', true),
+        createDirectoryEntry('node_modules', true),
+        createDirectoryEntry('.git', true),
+        createDirectoryEntry('README.md', false),
+      ];
+    }),
+  });
+  const service = createFileTreeService(createDependencies(fileSystem, root));
+
+  const result = await service.browseWorkspace('~');
+
+  assert.equal(result.path, root);
+  assert.deepEqual(opened, [root]);
+  assert.equal(metadataReads, 0);
+  assert.equal(result.suggestions[0]?.name, 'Projects');
+  assert.deepEqual(result.suggestions.map((entry) => entry.name).sort(), ['.cache', 'Library', 'Projects', 'dist']);
+  assert.ok(result.suggestions.every((entry) => entry.path === path.join(root, entry.name)));
+});
+
+test('browseWorkspace uses the configured starting folder without changing explicit home or project paths', async () => {
+  const root = path.resolve('folder-browser-root');
+  const validated: string[] = [];
+  const fileSystem = createFakeFileSystem({
+    access: async () => undefined,
+    stat: async () => createStats(true, 0o755),
+    realpath: async (candidate) => candidate,
+    openDirectory: createDirectoryReader(() => []),
+  });
+  const dependencies = createDependencies(fileSystem, root);
+  dependencies.workspace.defaultBrowsePath = '~/Desktop/code/doit';
+  dependencies.workspace.validatePath = async (candidate) => {
+    validated.push(candidate);
+    return { valid: true, resolvedPath: candidate };
+  };
+  const service = createFileTreeService(dependencies);
+
+  assert.equal((await service.browseWorkspace(null)).path, path.join(root, 'Desktop/code/doit'));
+  assert.equal((await service.browseWorkspace('~')).path, root);
+  assert.equal((await service.browseWorkspace('~/Projects')).path, path.join(root, 'Projects'));
+  assert.deepEqual(validated, [path.join(root, 'Desktop/code/doit'), root, path.join(root, 'Projects')]);
+});
+
+test('browseWorkspace validates the configured start before any filesystem reads', async () => {
+  const root = path.resolve('folder-browser-root');
+  const dependencies = createDependencies(createFakeFileSystem(), root);
+  dependencies.workspace.defaultBrowsePath = '/outside-workspace';
+  dependencies.workspace.validatePath = async () => ({ valid: false, error: 'Outside workspace' });
+
+  await assert.rejects(
+    createFileTreeService(dependencies).browseWorkspace(null),
+    (error: unknown) => (error as AppError).code === 'INVALID_WORKSPACE_PATH',
+  );
+});
+
+test('browseWorkspace reports an unreadable directory instead of presenting it as empty', async () => {
+  const root = path.resolve('folder-browser-root');
+  const fileSystem = createFakeFileSystem({
+    access: async () => undefined,
+    stat: async () => createStats(true, 0o755),
+    openDirectory: () => ({
+      [Symbol.asyncIterator]: () => ({
+        next: async () => { throw Object.assign(new Error('Permission denied'), { code: 'EPERM' }); },
+      }),
+    }),
+  });
+  await assert.rejects(
+    createFileTreeService(createDependencies(fileSystem, root)).browseWorkspace('~'),
+    (error: unknown) => (error as AppError).code === 'DIRECTORY_NOT_ACCESSIBLE',
+  );
+});
+
 test('listProjectFiles applies gitignore alongside hard directory exclusions', async () => {
   const projectRoot = path.resolve('file-tree-test-project');
   const documentationDirectory = path.join(projectRoot, 'docs');

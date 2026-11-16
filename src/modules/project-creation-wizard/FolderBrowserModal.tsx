@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Eye, EyeOff, FolderOpen, FolderPlus, Loader2, Plus, X } from 'lucide-react';
+import { Eye, EyeOff, FolderOpen, FolderPlus, Loader2, Plus, RefreshCw, X } from 'lucide-react';
 
 import { Button, Input } from '@/shared/ui';
 import { browseFilesystemFolders, createFolderInFilesystem } from '@/modules/project-creation-wizard/utils/workspaceApi';
@@ -9,6 +9,7 @@ import type { FolderSuggestion } from '@/shared/types';
 
 type FolderBrowserModalProps = {
   isOpen: boolean;
+  initialPath?: string;
   autoAdvanceOnSelect: boolean;
   onClose: () => void;
   onFolderSelected: (folderPath: string, advanceToConfirm: boolean) => void;
@@ -17,12 +18,14 @@ type FolderBrowserModalProps = {
 /** Opened by WorkspacePathField so the user can browse the filesystem and pick or create the workspace folder. */
 export default function FolderBrowserModal({
   isOpen,
+  initialPath,
   autoAdvanceOnSelect,
   onClose,
   onFolderSelected,
 }: FolderBrowserModalProps) {
   const { t } = useTranslation();
-  const [currentPath, setCurrentPath] = useState('~');
+  // Enable selection only after the server has resolved a real directory.
+  const [currentPath, setCurrentPath] = useState('');
   const [folders, setFolders] = useState<FolderSuggestion[]>([]);
   const [loadingFolders, setLoadingFolders] = useState(false);
   const [showHiddenFolders, setShowHiddenFolders] = useState(false);
@@ -31,23 +34,50 @@ export default function FolderBrowserModal({
   const [creatingFolder, setCreatingFolder] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Retain navigation while the modal is closed and ignore superseded loads.
+  const lastBrowsedPathRef = useRef('');
+  const loadIdRef = useRef(0);
+  const folderCacheRef = useRef(new Map<string, {
+    listing: Awaited<ReturnType<typeof browseFilesystemFolders>>;
+    loadedAt: number;
+  }>());
+
   // Keep the loader stable across locale changes: t lands in a ref so an
   // open browser does not reload and snap back to the home folder when the
   // user switches language.
   const loadFoldersRef = useRef<(pathToLoad: string) => Promise<void>>();
 
-  const loadFolders = useCallback(async (pathToLoad: string) => {
+  const loadFolders = useCallback(async (pathToLoad: string, forceRefresh = false) => {
+    const loadId = ++loadIdRef.current;
+    const cached = folderCacheRef.current.get(pathToLoad);
+    if (!forceRefresh && cached && Date.now() - cached.loadedAt < 10_000) {
+      lastBrowsedPathRef.current = cached.listing.path;
+      setCurrentPath(cached.listing.path);
+      setFolders(cached.listing.suggestions);
+      setLoadingFolders(false);
+      setError(null);
+      return;
+    }
     setLoadingFolders(true);
     setError(null);
 
     try {
       const result = await browseFilesystemFolders(pathToLoad);
+      if (loadId !== loadIdRef.current) return;
+      // Bound this per-modal cache and keep aliases (including the default
+      // path) together with the server's resolved absolute path.
+      if (folderCacheRef.current.size >= 40) folderCacheRef.current.clear();
+      const cachedListing = { listing: result, loadedAt: Date.now() };
+      folderCacheRef.current.set(pathToLoad, cachedListing);
+      folderCacheRef.current.set(result.path, cachedListing);
+      lastBrowsedPathRef.current = result.path;
       setCurrentPath(result.path);
       setFolders(result.suggestions);
     } catch (loadError) {
+      if (loadId !== loadIdRef.current) return;
       setError(loadError instanceof Error ? loadError.message : t('folderBrowser.loadFailed'));
     } finally {
-      setLoadingFolders(false);
+      if (loadId === loadIdRef.current) setLoadingFolders(false);
     }
   }, [t]);
 
@@ -59,8 +89,9 @@ export default function FolderBrowserModal({
     if (!isOpen) {
       return;
     }
-    void loadFoldersRef.current?.('~');
-  }, [isOpen]);
+    void loadFoldersRef.current?.(lastBrowsedPathRef.current || initialPath?.trim() || '');
+    return () => { loadIdRef.current += 1; };
+  }, [isOpen, initialPath]);
 
   const visibleFolders = useMemo(
     () =>
@@ -94,6 +125,7 @@ export default function FolderBrowserModal({
     try {
       const folderPath = joinFolderPath(currentPath, newFolderName);
       const createdPath = await createFolderInFilesystem(folderPath);
+      folderCacheRef.current.clear();
       resetNewFolderState();
       await loadFolders(createdPath);
     } catch (createError) {
@@ -122,6 +154,14 @@ export default function FolderBrowserModal({
 
           <div className="flex items-center gap-2">
             <button
+              onClick={() => loadFolders(currentPath, true)}
+              disabled={loadingFolders || !currentPath}
+              className="rounded-md p-2 text-gray-400 hover:bg-gray-100 hover:text-gray-600 disabled:opacity-50 dark:hover:bg-gray-700 dark:hover:text-gray-300"
+              title={t('common:buttons.refresh')}
+            >
+              <RefreshCw className="h-5 w-5" />
+            </button>
+            <button
               onClick={() => setShowHiddenFolders((previous) => !previous)}
               className={`rounded-md p-2 transition-colors ${
                 showHiddenFolders
@@ -134,6 +174,7 @@ export default function FolderBrowserModal({
             </button>
             <button
               onClick={() => setShowNewFolderInput((previous) => !previous)}
+              disabled={loadingFolders || !currentPath}
               className={`rounded-md p-2 transition-colors ${
                 showNewFolderInput
                   ? 'bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400'
@@ -253,6 +294,7 @@ export default function FolderBrowserModal({
             <Button
               variant="outline"
               onClick={() => onFolderSelected(currentPath, autoAdvanceOnSelect)}
+              disabled={loadingFolders || !currentPath || Boolean(error)}
             >
               {t('folderBrowser.useThisFolder')}
             </Button>

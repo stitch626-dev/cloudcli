@@ -1532,6 +1532,8 @@ export type FileTreeProjectGateway = {
  */
 export type FileTreeWorkspaceGateway = {
   rootPath: string;
+  /** Initial folder shown by the picker; validation still uses rootPath. */
+  defaultBrowsePath?: string;
   validatePath(candidatePath: string): Promise<WorkspacePathValidationResult>;
   /**
    * Resolves a path readable outside the workspace root — the system temp

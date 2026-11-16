@@ -8,6 +8,7 @@ import http from 'http';
 
 import express, { type NextFunction, type Request, type Response } from 'express';
 import cors from 'cors';
+import compression from 'compression';
 
 import { AppError, findApplicationRoot, getModuleDirectory, IS_PLATFORM, terminalTextStyles } from '@/shared/utils.js';
 import {
@@ -206,6 +207,9 @@ app.use('/api/voice', authenticateToken, voiceRoutes);
 
 // Serve public files (like api-docs.html)
 app.use(express.static(path.join(APP_ROOT, 'public')));
+
+// Compress hashed browser assets to keep first loads usable over remote tunnels.
+app.use('/assets', compression());
 
 // Static files served after API routes
 // Add cache control: HTML files should not be cached, but assets can be cached
