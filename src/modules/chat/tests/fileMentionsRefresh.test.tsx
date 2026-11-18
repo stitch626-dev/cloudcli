@@ -66,7 +66,11 @@ test('a file added after the list was loaded shows up the next time `@` opens th
   getFiles.mockResolvedValue(treeResponse(['a.txt', 'uploaded.txt']));
 
   const { type, shownNames } = renderMentions();
+  assert.equal(getFiles.mock.calls.length, 0);
+  type('@');
   await waitFor(() => assert.equal(getFiles.mock.calls.length, 1));
+  await waitFor(() => assert.deepEqual(shownNames(), ['a.txt']));
+  type('');
 
   type('@upl');
 
@@ -76,10 +80,14 @@ test('a file added after the list was loaded shows up the next time `@` opens th
 
 test('typing the query while the dropdown stays open does not refetch on every keystroke', async () => {
   getFiles.mockReset();
-  getFiles.mockResolvedValue(treeResponse(['a.txt', 'b.txt']));
+  getFiles.mockResolvedValue(treeResponse(['a.txt']));
 
   const { type, shownNames } = renderMentions();
+  assert.equal(getFiles.mock.calls.length, 0);
+  type('@');
   await waitFor(() => assert.equal(getFiles.mock.calls.length, 1));
+  await waitFor(() => assert.deepEqual(shownNames(), ['a.txt']));
+  type('');
 
   type('@');
   await waitFor(() => assert.equal(getFiles.mock.calls.length, 2));
@@ -103,7 +111,11 @@ test('the previous list stays visible while the refetch is in flight', async () 
   getFiles.mockReturnValueOnce(refetch.promise);
 
   const { type, shownNames } = renderMentions();
+  assert.equal(getFiles.mock.calls.length, 0);
+  type('@');
   await waitFor(() => assert.equal(getFiles.mock.calls.length, 1));
+  await waitFor(() => assert.deepEqual(shownNames(), ['a.txt']));
+  type('');
 
   type('@');
   await waitFor(() => assert.equal(getFiles.mock.calls.length, 2));
@@ -124,7 +136,11 @@ test('an older refetch that lands after a newer one cannot overwrite it', async 
   getFiles.mockReturnValueOnce(newerRefetch.promise);
 
   const { type, shownNames } = renderMentions();
+  assert.equal(getFiles.mock.calls.length, 0);
+  type('@');
   await waitFor(() => assert.equal(getFiles.mock.calls.length, 1));
+  await waitFor(() => assert.deepEqual(shownNames(), ['a.txt']));
+  type('');
 
   type('@');
   await waitFor(() => assert.equal(getFiles.mock.calls.length, 2));
@@ -155,7 +171,11 @@ test('a refetch that lands after Escape dismissed the dropdown does not re-open 
   getFiles.mockResolvedValue(treeResponse(['a.txt', 'new.txt']));
 
   const { result, type, shownNames } = renderMentions();
+  assert.equal(getFiles.mock.calls.length, 0);
+  type('@');
   await waitFor(() => assert.equal(getFiles.mock.calls.length, 1));
+  await waitFor(() => assert.deepEqual(shownNames(), ['a.txt']));
+  type('');
 
   type('mail me at foo@');
   await waitFor(() => assert.equal(getFiles.mock.calls.length, 2));
@@ -194,7 +214,11 @@ test('Escape before any file matched stops a late refetch from showing the dropd
   getFiles.mockReturnValueOnce(refetch.promise);
 
   const { result, type, shownNames } = renderMentions();
+  assert.equal(getFiles.mock.calls.length, 0);
+  type('@');
   await waitFor(() => assert.equal(getFiles.mock.calls.length, 1));
+  await waitFor(() => assert.deepEqual(shownNames(), ['a.txt']));
+  type('');
 
   // Nothing in the loaded list matches yet, so no dropdown is shown.
   type('mail foo@zz');

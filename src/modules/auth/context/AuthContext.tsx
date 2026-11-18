@@ -29,6 +29,7 @@ type AuthActionResult = { success: true } | { success: false; error: string };
 type AuthSessionPayload = {
   token?: string;
   user?: AuthUser;
+  hasCompletedOnboarding?: boolean;
 };
 
 type AuthStatusPayload = {
@@ -37,6 +38,7 @@ type AuthStatusPayload = {
 
 type AuthUserPayload = {
   user?: AuthUser;
+  hasCompletedOnboarding?: boolean;
 };
 
 type OnboardingStatusPayload = {
@@ -200,11 +202,13 @@ export function AuthProvider({ children }: AuthProviderProps) {
       setIsLoading(true);
       setError(null);
 
-      const statusResponse = await api.auth.status();
-      const statusPayload = await parseJsonSafely<AuthStatusPayload>(statusResponse);
-
-      if (statusPayload?.needsSetup) {
-        setNeedsSetup(true);
+      // A stored session can be validated in one authenticated request. Only
+      // signed-out browsers need the public first-install status endpoint.
+      if (!readStoredToken()) {
+        const statusResponse = await api.auth.status();
+        if (!statusResponse.ok) throw new Error('Auth status request failed');
+        const statusPayload = await parseJsonSafely<AuthStatusPayload>(statusResponse);
+        setNeedsSetup(Boolean(statusPayload?.needsSetup));
         return;
       }
 
@@ -214,13 +218,17 @@ export function AuthProvider({ children }: AuthProviderProps) {
       // bootstrap flips `isLoading`, which swaps the whole app for the loading
       // screen, so it must run once on mount and not again on every
       // X-Refreshed-Token rotation (each one remounted the workspace, #1269).
-      if (!readStoredToken()) {
-        return;
-      }
-
       const userResponse = await api.auth.user();
       if (!userResponse.ok) {
-        clearSession();
+        if (userResponse.status === 401 || userResponse.status === 403) {
+          clearSession();
+          // Also recover correctly when a saved session belongs to a reset installation.
+          const statusResponse = await api.auth.status();
+          const statusPayload = await parseJsonSafely<AuthStatusPayload>(statusResponse);
+          setNeedsSetup(Boolean(statusPayload?.needsSetup));
+        } else {
+          throw new Error('Session validation request failed');
+        }
         return;
       }
 
@@ -231,7 +239,12 @@ export function AuthProvider({ children }: AuthProviderProps) {
       }
 
       setUser(userPayload.user);
-      await checkOnboardingStatus();
+      if (typeof userPayload.hasCompletedOnboarding === 'boolean') {
+        setHasCompletedOnboarding(userPayload.hasCompletedOnboarding);
+      } else {
+        // Allows rolling upgrades with an older server and existing clients.
+        await checkOnboardingStatus();
+      }
     } catch (caughtError) {
       console.error('[Auth] Auth status check failed:', caughtError);
       setError(tRef.current(AUTH_ERROR_MESSAGES.authStatusCheckFailed));
@@ -292,9 +305,13 @@ export function AuthProvider({ children }: AuthProviderProps) {
   // user who still has to onboard would see the workspace mount for a whole
   // round trip before Onboarding replaced it. The token is stored first
   // because that request reads it from storage.
-  const publishSession = useCallback(async (nextUser: AuthUser, nextToken: string) => {
+  const publishSession = useCallback(async (nextUser: AuthUser, nextToken: string, onboarded?: boolean) => {
     persistToken(nextToken);
-    await checkOnboardingStatus();
+    if (typeof onboarded === 'boolean') {
+      setHasCompletedOnboarding(onboarded);
+    } else {
+      await checkOnboardingStatus();
+    }
     setUser(nextUser);
     setToken(nextToken);
     setNeedsSetup(false);
@@ -315,7 +332,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
           return { success: false, error: message };
         }
 
-        await publishSession(payload.user, payload.token);
+        await publishSession(payload.user, payload.token, payload.hasCompletedOnboarding);
         return { success: true };
       } catch (caughtError) {
         console.error('Login error:', caughtError);
@@ -339,7 +356,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
           return { success: false, error: message };
         }
 
-        await publishSession(payload.user, payload.token);
+        await publishSession(payload.user, payload.token, payload.hasCompletedOnboarding);
         return { success: true };
       } catch (caughtError) {
         console.error('Registration error:', caughtError);

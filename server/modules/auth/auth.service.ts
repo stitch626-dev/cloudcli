@@ -13,6 +13,7 @@ type AuthDependencies = {
     createUser(username: string, passwordHash: string): AuthUser;
     getUserByUsername(username: string): AuthLoginUser | undefined;
     updateLastLogin(userId: number): void;
+    hasCompletedOnboarding(userId: number): boolean;
   };
   transaction: {
     begin(): void;
@@ -77,6 +78,7 @@ export function createAuthService(dependencies: AuthDependencies) {
         const passwordHash = await dependencies.hashPassword(password);
         const user = dependencies.users.createUser(username, passwordHash);
         const token = dependencies.generateToken(user);
+        const hasCompletedOnboarding = dependencies.users.hasCompletedOnboarding(numericUserId(user.id));
         dependencies.transaction.commit();
         dependencies.users.updateLastLogin(numericUserId(user.id));
 
@@ -84,6 +86,7 @@ export function createAuthService(dependencies: AuthDependencies) {
           success: true,
           user: { id: user.id, username: user.username },
           token,
+          hasCompletedOnboarding,
         };
       } catch (error) {
         dependencies.transaction.rollback();
@@ -123,11 +126,19 @@ export function createAuthService(dependencies: AuthDependencies) {
         success: true,
         user: { id: user.id, username: user.username },
         token: dependencies.generateToken(user),
+        hasCompletedOnboarding: dependencies.users.hasCompletedOnboarding(numericUserId(user.id)),
       };
     },
 
     getCurrentUser(user: unknown) {
-      return { user };
+      if (!user || typeof user !== 'object' || !('id' in user)
+          || (typeof user.id !== 'number' && typeof user.id !== 'bigint')) {
+        throw new AppError('Authenticated user is required', { code: 'AUTH_USER_REQUIRED', statusCode: 401 });
+      }
+      return {
+        user,
+        hasCompletedOnboarding: dependencies.users.hasCompletedOnboarding(numericUserId(user.id)),
+      };
     },
 
     refreshSession(user: unknown) {

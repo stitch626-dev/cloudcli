@@ -1,1 +1,1 @@
-export { default as Settings } from '@/modules/settings/Settings';
+export { default as Settings } from '@/modules/settings/LazySettings';

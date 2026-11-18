@@ -169,6 +169,23 @@ const put = withBody('PUT');
 const patch = withBody('PATCH');
 const del = withBody('DELETE');
 
+// Only explicitly read-only endpoints opt in. Requests are shared while in
+// flight, never cached after completion, and never shared across credentials.
+const pendingReads = new Map<string, Promise<Response>>();
+const sharedRead = (url: string, options: ApiRequestOptions = {}): Promise<Response> => {
+  const key = JSON.stringify([getStoredAuthToken(), url, options.method ?? 'GET', options.body ?? null]);
+  let pending = pendingReads.get(key);
+  if (!pending) {
+    pending = authenticatedFetch(url, options);
+    pendingReads.set(key, pending);
+    const release = () => { if (pendingReads.get(key) === pending) pendingReads.delete(key); };
+    void pending.then(release, release);
+  }
+  // Each consumer owns its body stream; one caller reading JSON cannot consume
+  // another caller's response or mutate its headers.
+  return pending.then((response) => response.clone());
+};
+
 // ─── URL builders ───────────────────────────────────────────────────────────
 // Exported for the consumers that cannot go through `authenticatedFetch`:
 // `EventSource` and `XMLHttpRequest` need a bare URL.
@@ -232,7 +249,7 @@ export const api = {
       options,
     ),
   projectTaskmaster: (projectId: string) =>
-    get(`/api/projects/${encodeURIComponent(projectId)}/taskmaster`),
+    sharedRead(`/api/projects/${encodeURIComponent(projectId)}/taskmaster`),
   renameProject: (projectId: string, displayName: string) =>
     put(`/api/projects/${projectId}/rename`, { displayName }),
   restoreProject: (projectId: string) =>
@@ -430,7 +447,7 @@ export const api = {
 
   // Provider (coding agent) endpoints — models, capabilities, sessions, MCP, skills.
   providers: {
-    capabilities: () => get('/api/providers/capabilities'),
+    capabilities: () => sharedRead('/api/providers/capabilities'),
     authStatus: (provider: string) =>
       get(`/api/providers/${encodeURIComponent(provider)}/auth/status`),
     cliStatus: (provider: string) =>
@@ -493,7 +510,7 @@ export const api = {
     saveGlobalMcpServer: (payload: unknown) => post('/api/providers/mcp/servers/global', payload),
 
     skills: (provider: string, { workspacePath }: { workspacePath?: string } = {}) =>
-      get(`/api/providers/${encodeURIComponent(provider)}/skills${query({ workspacePath })}`),
+      sharedRead(`/api/providers/${encodeURIComponent(provider)}/skills${query({ workspacePath })}`),
     saveSkills: (provider: string, payload: unknown) =>
       post(`/api/providers/${provider}/skills`, payload),
   },
@@ -502,7 +519,9 @@ export const api = {
   commands: {
     // `projectPath` stays optional: a workspace without a resolved path omits
     // the field entirely, which is what the server expects.
-    list: (projectPath: string | undefined) => post('/api/commands/list', { projectPath }),
+    list: (projectPath: string | undefined) => sharedRead('/api/commands/list', {
+      method: 'POST', body: JSON.stringify({ projectPath }),
+    }),
     execute: (payload: unknown) => post('/api/commands/execute', payload),
   },
 

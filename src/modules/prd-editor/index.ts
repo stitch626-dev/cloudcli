@@ -1,1 +1,1 @@
-export { default as PRDEditor } from '@/modules/prd-editor/PRDEditor';
+export { default as PRDEditor } from '@/modules/prd-editor/LazyPrdEditor';

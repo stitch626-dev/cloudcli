@@ -30,6 +30,7 @@ let requestedPaths: string[] = [];
 let nextRefreshedToken: string | null = null;
 let hasCompletedOnboarding = true;
 let onboardingStatusDelayMs = 0;
+let combinedBootstrap = false;
 
 const stubServer = () => {
   vi.stubGlobal('fetch', vi.fn(async (url: string) => {
@@ -44,9 +45,9 @@ const stubServer = () => {
     const body = url === '/api/auth/status'
       ? { needsSetup: false }
       : url === '/api/auth/user'
-        ? { user: { id: 1, username: 'triage' } }
+        ? { user: { id: 1, username: 'triage' }, ...(combinedBootstrap ? { hasCompletedOnboarding } : {}) }
         : url === '/api/auth/login'
-          ? { token: makeToken(nowSeconds()), user: { id: 1, username: 'triage' } }
+          ? { token: makeToken(nowSeconds()), user: { id: 1, username: 'triage' }, ...(combinedBootstrap ? { hasCompletedOnboarding } : {}) }
           : url === '/api/user/onboarding-status'
             ? { hasCompletedOnboarding }
             : {};
@@ -100,6 +101,7 @@ beforeEach(() => {
   nextRefreshedToken = null;
   hasCompletedOnboarding = true;
   onboardingStatusDelayMs = 0;
+  combinedBootstrap = false;
   workspaceMounts = 0;
   loadingPasses = 0;
   seenToken = null;
@@ -256,4 +258,48 @@ test('signing in before onboarding shows onboarding without mounting the workspa
   assert.ok(requestedPaths.includes('/api/user/onboarding-status'));
   assert.notEqual(localStorage.getItem('auth-token'), null);
   assert.equal(workspaceMounts, 0);
+});
+
+test('a saved session initializes with one authenticated request on upgraded servers', async () => {
+  combinedBootstrap = true;
+  localStorage.setItem('auth-token', makeToken(nowSeconds()));
+  renderApp();
+  await screen.findByText('workspace');
+  assert.deepEqual(requestedPaths.filter((path) => path.startsWith('/api/auth/')), ['/api/auth/user']);
+  assert.equal(requestedPaths.includes('/api/user/onboarding-status'), false);
+});
+
+test('combined bootstrap still gates users who have not completed onboarding', async () => {
+  combinedBootstrap = true;
+  hasCompletedOnboarding = false;
+  localStorage.setItem('auth-token', makeToken(nowSeconds()));
+  renderApp();
+  await screen.findByText('onboarding');
+  assert.equal(workspaceMounts, 0);
+  assert.equal(requestedPaths.includes('/api/user/onboarding-status'), false);
+});
+
+test('a transient validation failure preserves the saved session for a retry', async () => {
+  const token = makeToken(nowSeconds());
+  localStorage.setItem('auth-token', token);
+  vi.stubGlobal('fetch', vi.fn(async () => new Response('unavailable', { status: 503 })));
+  renderApp();
+  await screen.findByText('login');
+  assert.equal(localStorage.getItem('auth-token'), token);
+  assert.equal(workspaceMounts, 0);
+});
+
+test('rejected sessions are cleared and first-install status is checked again', async () => {
+  localStorage.setItem('auth-token', makeToken(nowSeconds()));
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+    requestedPaths.push(url);
+    return url === '/api/auth/user'
+      ? new Response('{}', { status: 401 })
+      : Response.json({ needsSetup: true });
+  }));
+  function SetupProbe() { const { needsSetup } = useAuth(); return <div>{needsSetup ? 'setup-required' : 'no-setup'}</div>; }
+  render(<AuthProvider><Gate /><SetupProbe /></AuthProvider>);
+  await screen.findByText('setup-required');
+  assert.equal(localStorage.getItem('auth-token'), null);
+  assert.deepEqual(requestedPaths, ['/api/auth/user', '/api/auth/status']);
 });

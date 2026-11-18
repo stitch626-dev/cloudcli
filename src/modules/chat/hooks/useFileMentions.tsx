@@ -54,6 +54,7 @@ const haveSameFiles = (left: MentionableFile[], right: MentionableFile[]) =>
     (file, index) => file.path === right[index].path && file.relativePath === right[index].relativePath,
   );
 
+/** Used by the chat composer to fetch file suggestions only while a mention is being entered. */
 export function useFileMentions({ selectedProject, input, setInput, textareaRef }: UseFileMentionsOptions) {
   const projectId = selectedProject?.projectId;
   const [fileList, setFileList] = useState<MentionableFile[]>([]);
@@ -102,21 +103,14 @@ export function useFileMentions({ selectedProject, input, setInput, textareaRef 
   }, []);
 
   useEffect(() => {
-    const fetchProjectFiles = async () => {
-      setFileList([]);
-      setFilteredFiles([]);
-      if (!projectId) {
-        return;
-      }
-
-      await loadProjectFiles(projectId);
-    };
-
-    fetchProjectFiles();
+    // Project selection must not download the entire recursive tree. The
+    // dropdown effect below fetches on demand, including a switch while open.
+    setFileList([]);
+    setFilteredFiles([]);
     return () => {
       fileListRequestRef.current?.abort();
     };
-  }, [projectId, loadProjectFiles]);
+  }, [projectId]);
 
   // Files keep appearing after the list above was loaded (uploads, agent edits,
   // the terminal, git checkouts) and nothing tells the composer about them, so

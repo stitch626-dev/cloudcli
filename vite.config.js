@@ -58,19 +58,13 @@ export default defineConfig(({ mode }) => {
       chunkSizeWarningLimit: 1000,
       rollupOptions: {
         output: {
-          manualChunks: {
-            'vendor-react': ['react', 'react-dom', 'react-router-dom'],
-            'vendor-codemirror': [
-              '@uiw/react-codemirror',
-              '@codemirror/lang-css',
-              '@codemirror/lang-html',
-              '@codemirror/lang-javascript',
-              '@codemirror/lang-json',
-              '@codemirror/lang-markdown',
-              '@codemirror/lang-python',
-              '@codemirror/theme-one-dark'
-            ],
-            'vendor-xterm': ['@xterm/xterm', '@xterm/addon-fit', '@xterm/addon-clipboard', '@xterm/addon-webgl']
+          manualChunks(id) {
+            // Include virtual CommonJS wrappers as well as React's entry
+            // points, so shared JSX/helpers cannot pull in a lazy editor.
+            if (/\/node_modules\/(?:react|react-dom|react-router|react-router-dom|scheduler|@babel\/runtime)\//.test(id)
+              || id.includes('commonjsHelpers.js')) return 'vendor-react'
+            if (/\/node_modules\/(?:@codemirror\/|@lezer\/|@uiw\/react-codemirror\/)/.test(id)) return 'vendor-codemirror'
+            if (id.includes('/node_modules/@xterm/')) return 'vendor-xterm'
           }
         }
       }

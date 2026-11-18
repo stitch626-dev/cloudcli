@@ -1,1 +1,1 @@
-export { default as Shell } from '@/modules/shell/Shell';
+export { default as Shell } from '@/modules/shell/LazyShell';

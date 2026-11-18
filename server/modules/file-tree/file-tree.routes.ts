@@ -127,7 +127,8 @@ export function createFileTreeRouter(
   }, logger));
 
   // Large novels otherwise cross the public proxy as several megabytes of JSON.
-  // Restrict compression to text reads so media streaming keeps its byte semantics.
+  // Compress text/JSON reads at the origin, before the public tunnel. Media
+  // streaming routes keep their original byte and Range semantics.
   router.get('/projects/:projectId/file', compression(), createRouteHandler(async (request, response) => {
     response.setHeader('Cache-Control', 'private, no-store');
     const filePath = readRequiredString(request.query.filePath, 'filePath', 'Invalid file path');
@@ -165,7 +166,7 @@ export function createFileTreeRouter(
     response.json(await services.saveTextFile(readProjectId(request), filePath, body.content));
   }, logger));
 
-  router.get('/projects/:projectId/files', createRouteHandler(async (request, response) => {
+  router.get('/projects/:projectId/files', compression(), createRouteHandler(async (request, response) => {
     response.setHeader('Cache-Control', 'private, no-store');
     response.json(await services.listProjectFiles(readProjectId(request), {
       respectGitignore: request.query.respectGitignore === 'true',
@@ -177,7 +178,7 @@ export function createFileTreeRouter(
     }));
   }, logger));
 
-  router.get('/projects/:projectId/files/snapshot', createRouteHandler(async (request, response) => {
+  router.get('/projects/:projectId/files/snapshot', compression(), createRouteHandler(async (request, response) => {
     response.setHeader('Cache-Control', 'private, no-store');
     response.json(await services.snapshotProjectFiles(readProjectId(request), {
       respectGitignore: request.query.respectGitignore === 'true',

@@ -203,3 +203,25 @@ test('shallow listing route forwards an explicit refresh', async () => {
   });
   assert.deepEqual(inputs, [['p1', { respectGitignore: false, shallow: true, directory: '', refresh: true }]]);
 });
+
+test('recursive listings and bounded snapshots compress before entering the tunnel', async () => {
+  const children = Array.from({ length: 500 }, (_, index) => ({
+    type: 'file' as const, name: `中文-${index}.txt`, path: `/repo/中文-${index}.txt`,
+    size: 20, modified: null, permissions: '644', permissionsRwx: 'rw-r--r--',
+  }));
+  const snapshot = { rootPath: '/repo', directories: [{ path: '/repo', children }], truncated: true };
+  await withFileTreeServer(createFakeServices({
+    listProjectFiles: async () => children,
+    snapshotProjectFiles: async () => snapshot,
+  }), async (baseUrl) => {
+    for (const [suffix, expected] of [['files', children], ['files/snapshot', snapshot]] as const) {
+      const url = `${baseUrl}/api/file-tree/projects/p1/${suffix}`;
+      for (const encoding of ['gzip', 'identity']) {
+        const response = await fetch(url, { headers: { 'Accept-Encoding': encoding } });
+        assert.equal(response.headers.get('content-encoding'), encoding === 'gzip' ? 'gzip' : null);
+        assert.equal(response.headers.get('cache-control'), 'private, no-store');
+        assert.deepEqual(await response.json(), expected);
+      }
+    }
+  });
+});

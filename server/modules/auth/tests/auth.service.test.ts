@@ -14,6 +14,7 @@ function createDependencies(overrides: Partial<AuthDependencies> = {}): AuthDepe
       createUser: (username, passwordHash) => ({ id: 1, username, password_hash: passwordHash }),
       getUserByUsername: () => undefined,
       updateLastLogin: () => undefined,
+      hasCompletedOnboarding: () => true,
     },
     transaction: {
       begin: () => undefined,
@@ -47,6 +48,7 @@ test('register hashes credentials and commits through injected dependencies', as
       },
       getUserByUsername: () => undefined,
       updateLastLogin: (userId) => operations.push(`login:${userId}`),
+      hasCompletedOnboarding: () => false,
     },
   }));
 
@@ -64,6 +66,7 @@ test('login rejects an invalid password without issuing a token', async () => {
       createUser: () => { throw new Error('unused'); },
       getUserByUsername: () => ({ id: 1, username: 'alice', password_hash: 'hash' }),
       updateLastLogin: () => undefined,
+      hasCompletedOnboarding: () => true,
     },
     comparePassword: async () => false,
     generateToken: () => {
@@ -92,4 +95,27 @@ test('refreshSession issues a replacement token for the authenticated user', () 
 
   assert.deepEqual(result, { token: 'replacement-token' });
   assert.deepEqual(tokenUser, { id: 7, username: 'alice' });
+});
+
+test('authenticated bootstrap reports onboarding for the verified user only', () => {
+  const dependencies = createDependencies();
+  const ids: number[] = [];
+  dependencies.users.hasCompletedOnboarding = (id) => { ids.push(id); return id === 7; };
+  const service = createAuthService(dependencies);
+  assert.deepEqual(service.getCurrentUser({ id: 7, username: 'alice' }), {
+    user: { id: 7, username: 'alice' }, hasCompletedOnboarding: true,
+  });
+  assert.equal(service.getCurrentUser({ id: 8, username: 'bob' }).hasCompletedOnboarding, false);
+  assert.deepEqual(ids, [7, 8]);
+  assert.throws(() => service.getCurrentUser(undefined), /Authenticated user/);
+});
+
+test('login includes onboarding state without exposing password hashes', async () => {
+  const dependencies = createDependencies();
+  dependencies.users.getUserByUsername = () => ({ id: 1, username: 'alice', password_hash: 'private' });
+  dependencies.users.hasCompletedOnboarding = () => false;
+  dependencies.comparePassword = async () => true;
+  const result = await createAuthService(dependencies).login('alice', 'password');
+  assert.equal(result.hasCompletedOnboarding, false);
+  assert.deepEqual(result.user, { id: 1, username: 'alice' });
 });

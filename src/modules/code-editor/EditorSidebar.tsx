@@ -1,8 +1,9 @@
-import { useCallback, useState, useEffect, useRef } from 'react';
+import { lazy, Suspense, useCallback, useState, useEffect, useRef } from 'react';
 import type { MouseEvent, MutableRefObject } from 'react';
 
 import type { CodeEditorFile } from '@/shared/types';
-import CodeEditor from '@/modules/code-editor/CodeEditor';
+
+const CodeEditor = lazy(() => import('@/modules/code-editor/CodeEditor'));
 
 type EditorSidebarProps = {
   editingFile: CodeEditorFile | null;
@@ -136,6 +137,7 @@ export default function EditorSidebar({
           : `h-full overflow-hidden border-l border-gray-200 dark:border-gray-700 ${useFlexLayout ? 'min-w-0 flex-1' : ''}`}
         style={isFloating || useFlexLayout ? undefined : { width: `${effectiveWidth}px`, minWidth: `${MIN_EDITOR_WIDTH}px` }}
       >
+        <Suspense fallback={<div className="h-full w-full animate-pulse bg-muted/30" aria-busy="true" />}>
         <CodeEditor
           file={editingFile}
           onClose={handleClose}
@@ -146,6 +148,7 @@ export default function EditorSidebar({
           onToggleExpand={isFloating ? null : onToggleEditorExpand}
           onPopOut={isFloating ? null : handlePopOut}
         />
+        </Suspense>
       </div>
     </div>
   );
